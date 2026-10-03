@@ -21,9 +21,9 @@ export const TRACKS = ["drums", "bass", "chords", "melody"] as const;
 export type TrackId = (typeof TRACKS)[number];
 
 /** The genres: each has its own tempo, swing, drum backbone and ways of bass, chords and melody (STYLES). */
-export const GENRES = ["house", "hiphop"] as const;
+export const GENRES = ["house", "hiphop", "deephouse", "ambient"] as const;
 export type Genre = (typeof GENRES)[number];
-export const GENRE_NAMES: Record<Genre, string> = { house: "Lo-Fi-House", hiphop: "Lo-Fi-Hip-Hop" };
+export const GENRE_NAMES: Record<Genre, string> = { house: "Lo-Fi-House", hiphop: "Lo-Fi-Hip-Hop", deephouse: "Deep House", ambient: "Ambient" };
 
 export const DRUM_VOICES = ["kick", "clap", "hat", "open", "shaker", "rim"] as const;
 /** The voices of an extra percussion track: hand drums, a clave, and two from the kit. */
@@ -165,6 +165,14 @@ export function feelOf(mode: number, genre: Genre = "house"): Feel {
     // Slow, heavily swung and a little darker: boom-bap at 72 to 88.
     return { tempo: 72 + 16 * happy, swing: 0.22 + 0.08 * happy, brightness: 0.6 + 0.5 * happy, space: 1.4 - 0.6 * happy, punch: 0.9 + 0.15 * happy, wait: 1.25 - 0.5 * happy, melodyLow };
   }
+  if (genre === "deephouse") {
+    // Steady and nearly straight, 118 to 124, the drums a little firmer.
+    return { tempo: 118 + 6 * happy, swing: 0.04 + 0.06 * happy, brightness: 0.75 + 0.45 * happy, space: 1.4 - 0.6 * happy, punch: 0.95 + 0.1 * happy, wait: 1.25 - 0.5 * happy, melodyLow };
+  }
+  if (genre === "ambient") {
+    // Slow, straight, soft and wide: lots of room around few notes.
+    return { tempo: 64 + 16 * happy, swing: 0, brightness: 0.65 + 0.4 * happy, space: 1.8 - 0.6 * happy, punch: 0.7, wait: 1.25 - 0.5 * happy, melodyLow };
+  }
   return { tempo: 104 + 22 * happy, swing: 0.08 + 0.12 * happy, brightness: 0.7 + 0.6 * happy, space: 1.5 - 0.8 * happy, punch: 0.85 + 0.2 * happy, wait: 1.25 - 0.5 * happy, melodyLow };
 }
 
@@ -253,6 +261,21 @@ function hiphopBackbone(): Hit[] {
   return hits;
 }
 
+/** Deep house: four on the floor, a clap on two and four, the open hat on every off-beat. */
+function deephouseBackbone(): Hit[] {
+  const hits: Hit[] = [];
+  for (let step = 0; step < DRUM_STEPS; step += 1) {
+    const inBar = step % STEPS_PER_BAR;
+    if (inBar % 4 === 0) hits.push({ step, voice: "kick", vel: 1, min: 0.35 });
+    if (inBar === 4 || inBar === 12) hits.push({ step, voice: "clap", vel: 0.75, min: 0.45 });
+    if (inBar % 4 === 2) hits.push({ step, voice: "open", vel: 0.45, min: 0.3 });
+  }
+  return hits;
+}
+
+/** Ambient has no backbone: no kick, no clap, only what comes and goes. */
+const ambientBackbone = (): Hit[] => [];
+
 /** The hits that may come and go around the backbone: where in a bar, how loud, from which energy, how many at most. */
 const DRUM_EXTRAS: readonly { voice: DrumVoice; steps: readonly number[]; vel: number; min: number; max: number }[] = [
   { voice: "kick", steps: [3, 7, 10, 11, 14, 15], vel: 0.5, min: 0.7, max: 3 },
@@ -270,6 +293,23 @@ const HIPHOP_EXTRAS: typeof DRUM_EXTRAS = [
   { voice: "open", steps: [6, 14], vel: 0.4, min: 0.6, max: 2 },
   { voice: "rim", steps: [3, 7, 11, 13], vel: 0.4, min: 0.45, max: 3 },
   { voice: "shaker", steps: [2, 6, 10, 14], vel: 0.2, min: 0.4, max: 4 },
+];
+
+/** Deep house's shuffle of sixteenth hats and shaker around the open hats, a rim, now and then a kick or clap more. */
+const DEEPHOUSE_EXTRAS: typeof DRUM_EXTRAS = [
+  { voice: "hat", steps: [0, 1, 3, 4, 5, 7, 8, 9, 11, 12, 13, 15], vel: 0.3, min: 0.45, max: 14 },
+  { voice: "shaker", steps: [1, 3, 5, 7, 9, 11, 13, 15], vel: 0.25, min: 0.35, max: 10 },
+  { voice: "rim", steps: [3, 7, 11, 14, 15], vel: 0.4, min: 0.5, max: 4 },
+  { voice: "kick", steps: [14, 15], vel: 0.45, min: 0.75, max: 1 },
+  { voice: "clap", steps: [7, 15], vel: 0.3, min: 0.7, max: 1 },
+];
+
+/** Ambient's few soft sounds: a shaker, a rim, a hat now and then; none from little energy. */
+const AMBIENT_EXTRAS: typeof DRUM_EXTRAS = [
+  { voice: "shaker", steps: [2, 6, 10, 14], vel: 0.25, min: 0.35, max: 6 },
+  { voice: "rim", steps: [7, 15], vel: 0.3, min: 0.55, max: 2 },
+  { voice: "hat", steps: [4, 12], vel: 0.2, min: 0.6, max: 3 },
+  { voice: "open", steps: [0, 8], vel: 0.25, min: 0.7, max: 2 },
 ];
 
 /** The hits of an extra percussion track, none of them fixed. */
@@ -320,6 +360,12 @@ const MELODY: Line = { steps: LOOP_STEPS, grid: [0, 2, 3, 4, 6, 8, 10, 11, 12, 1
 /** Hip-hop: a bass that sits with the kick and holds, a melody with room between its notes. */
 const HIPHOP_BASS: Line = { steps: BASS_STEPS, grid: [0, 3, 7, 10, 11, 14], tones: [0, 0, 0, 0, 2, 3, 4], lens: [3, 4, 6], count: [3, 8], min: [0.15, 0.5] };
 const HIPHOP_MELODY: Line = { steps: LOOP_STEPS, grid: [0, 3, 6, 8, 10, 12, 14], tones: [0, 1, 2, 3, 4, 5], lens: [2, 3, 4, 6], count: [3, 9], min: [0.1, 0.6] };
+/** Deep house: a bass that bounces on the off-beats and jumps the octave; a short hook. */
+const DEEPHOUSE_BASS: Line = { steps: BASS_STEPS, grid: [0, 3, 6, 7, 10, 11, 14], tones: [0, 0, 0, 2, 3, 4, 4], lens: [1, 2, 3], count: [5, 12], min: [0.15, 0.55] };
+const DEEPHOUSE_MELODY: Line = { steps: LOOP_STEPS, grid: [0, 2, 6, 8, 10, 14], tones: [0, 1, 2, 3, 4, 5], lens: [1, 2, 4], count: [3, 9], min: [0.2, 0.65] };
+/** Ambient: a bass that holds for most of a bar, a melody of few long notes. */
+const AMBIENT_BASS: Line = { steps: BASS_STEPS, grid: [0, 8], tones: [0, 0, 2, 4], lens: [8, 12, 16], count: [1, 4], min: [0, 0.4] };
+const AMBIENT_MELODY: Line = { steps: LOOP_STEPS, grid: [0, 4, 8, 12], tones: [0, 1, 2, 3, 4, 5], lens: [4, 6, 8], count: [2, 6], min: [0.1, 0.6] };
 
 function addNote(notes: Note[], rng: Rng, line: Line, withinSteps = line.steps): boolean {
   const step = STEPS_PER_BAR * Math.floor(rng() * (withinSteps / STEPS_PER_BAR)) + pick(rng, line.grid);
@@ -362,7 +408,8 @@ function mutateNotes(notes: Note[], rng: Rng, line: Line): boolean {
 /** A short motif, repeated to fill the line, then varied a little so the repeats differ. */
 function rollNotes(rng: Rng, line: Line, motifSteps: number, variations: number): Note[] {
   const motif: Note[] = [];
-  const want = 3 + Math.floor(rng() * 3);
+  // Three to five notes, but never more than the motif has places for (ambient's bass has two a bar).
+  const want = Math.min(3 + Math.floor(rng() * 3), (motifSteps / STEPS_PER_BAR) * line.grid.length, line.count[1]);
   while (motif.length < want) addNote(motif, rng, line, motifSteps);
   const notes: Note[] = [];
   for (let offset = 0; offset < line.steps; offset += motifSteps) notes.push(...motif.map((note) => ({ ...note, step: note.step + offset })));
@@ -383,6 +430,22 @@ const HOUSE_PROGRESSIONS: readonly (readonly number[])[] = [
   [0, 2, 5, 4],
   [0, 6, 5, 6],
   [5, 4, 0, 0],
+];
+/** Deep house vamps on minor sevenths and turns between two or three chords. */
+const DEEPHOUSE_PROGRESSIONS: readonly (readonly number[])[] = [
+  [0, 0, 3, 3],
+  [0, 6, 5, 6],
+  [0, 3, 0, 6],
+  [5, 6, 0, 0],
+  [0, 2, 3, 4],
+];
+/** Ambient moves slowly and openly. */
+const AMBIENT_PROGRESSIONS: readonly (readonly number[])[] = [
+  [0, 5, 3, 5],
+  [0, 0, 5, 5],
+  [5, 3, 0, 0],
+  [0, 4, 5, 3],
+  [3, 3, 0, 0],
 ];
 /** Hip-hop leans on the subdominant and walks through more chords. */
 const HIPHOP_PROGRESSIONS: readonly (readonly number[])[] = [
@@ -461,6 +524,10 @@ const STYLES: Record<Genre, Style> = {
   house: { backbone: houseBackbone, drums: DRUM_EXTRAS, bass: BASS, melody: MELODY, progressions: HOUSE_PROGRESSIONS, ninth: 0.5, stabGrid: [0, 3, 6, 8, 10, 11, 14], stabLens: [1, 2, 2, 3], stabCount: [2, 4], maxStabs: 5 },
   // Long, jazzy chords: one or two a bar, mostly with their ninth.
   hiphop: { backbone: hiphopBackbone, drums: HIPHOP_EXTRAS, bass: HIPHOP_BASS, melody: HIPHOP_MELODY, progressions: HIPHOP_PROGRESSIONS, ninth: 0.8, stabGrid: [0, 8, 10, 12, 14], stabLens: [4, 6, 8, 12, 16], stabCount: [1, 2], maxStabs: 3 },
+  // Chord stabs on and off the beat, a little longer than lo-fi house's.
+  deephouse: { backbone: deephouseBackbone, drums: DEEPHOUSE_EXTRAS, bass: DEEPHOUSE_BASS, melody: DEEPHOUSE_MELODY, progressions: DEEPHOUSE_PROGRESSIONS, ninth: 0.7, stabGrid: [0, 3, 6, 10, 11, 14], stabLens: [2, 3, 4], stabCount: [2, 3], maxStabs: 4 },
+  // One chord held through the bar, mostly with its ninth.
+  ambient: { backbone: ambientBackbone, drums: AMBIENT_EXTRAS, bass: AMBIENT_BASS, melody: AMBIENT_MELODY, progressions: AMBIENT_PROGRESSIONS, ninth: 0.85, stabGrid: [0, 8], stabLens: [16, 12, 8], stabCount: [1, 1], maxStabs: 2 },
 };
 
 /**

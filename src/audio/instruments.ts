@@ -94,7 +94,11 @@ export const FITS: Record<TrackId, readonly string[]> = {
   melody: ["glocke", "glasharfe", "vibraphon", "marimba", "kalimba", "floete", "pfiff", "gezupft", "gameboy", "kassettenpiano", "streicher", "chor"],
 };
 
-/** The instruments that suit each genre: house as above, hip-hop dusty and warm (Rhodes, upright bass, soft kits). */
+/**
+ * The instruments that suit each genre: lo-fi house as above, hip-hop dusty
+ * and warm (Rhodes, upright bass, soft kits), deep house with a 909, organ
+ * stabs and round basses, ambient with surfaces, bells and a sub.
+ */
 export const GENRE_FITS: Record<Genre, Record<TrackId, readonly string[]>> = {
   house: FITS,
   hiphop: {
@@ -102,6 +106,18 @@ export const GENRE_FITS: Record<Genre, Record<TrackId, readonly string[]>> = {
     bass: ["sub", "kontrabass", "rund"],
     chords: ["kassettenpiano", "epiano", "vibraphon", "orgel"],
     melody: ["glocke", "kalimba", "floete", "vibraphon", "pfiff", "marimba", "glasharfe"],
+  },
+  deephouse: {
+    drums: ["tr909", "knackig", "staubig"],
+    bass: ["rund", "sub", "reese", "kantig"],
+    chords: ["m1orgel", "epiano", "saege", "orgel", "streicher"],
+    melody: ["glocke", "vibraphon", "gezupft", "marimba", "kalimba"],
+  },
+  ambient: {
+    drums: ["weich", "kiste", "staubig"],
+    bass: ["sub", "kontrabass"],
+    chords: ["streicher", "chor", "glasharfe", "saege", "kassettenpiano"],
+    melody: ["glasharfe", "vibraphon", "glocke", "floete", "kalimba"],
   },
 };
 

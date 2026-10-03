@@ -62,10 +62,15 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
   Die Bandsättigung davor deckt das Doppelte des Vollausschlags ab, damit ein
   lauter Mix weich in sie hineinläuft statt an ihr Ende zu stoßen.
 - **Genre:** Lo-Fi-House (104–126 BPM, Kick auf jedem Viertel, kurze
-  Akkord-Stabs) oder Lo-Fi-Hip-Hop (72–88 BPM, starker Swing, Boom-Bap mit Kick
+  Akkord-Stabs), Lo-Fi-Hip-Hop (72–88 BPM, starker Swing, Boom-Bap mit Kick
   auf der Eins und dem Und der Drei und Snare auf zwei und vier, längere
   Basstöne, gehaltene Nonen-Akkorde, eine sparsamere Melodie, Rhodes und
-  E-Piano). Gewechselt wird am Taktstrich: Drums, Bass, Melodie und der
+  E-Piano), Deep House (118–124 BPM, fast gerade, Kick auf jedem Viertel, Clap
+  auf zwei und vier, offene Hi-Hat auf jedem Offbeat, ein federnder Bass mit
+  Oktavsprüngen, Moll-Septakkord-Stabs auf House-Orgel, E-Piano oder Säge) oder
+  Ambient (64–80 BPM, keine Kick und kein Clap, nur leise, seltene Perkussion,
+  lang gehaltener Bass, ein Akkord pro Takt, wenige lange Melodietöne, mehr
+  Raum in Hall und Echo, Streicher, Chor und Glasharfe). Gewechselt wird am Taktstrich: Drums, Bass, Melodie und der
   Rhythmus der Akkorde fangen im neuen Stil neu an, mit passenden Instrumenten;
   Tonart, Stimmung und Akkordfolge bleiben, gehaltene und zusätzliche Spuren
   auch. Das Logbuch zeigt das Genre jedes Grooves.

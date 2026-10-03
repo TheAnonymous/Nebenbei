@@ -394,3 +394,28 @@ test("Lo-Fi-Hip-Hop: slower boom-bap from the next bar, the harmony kept; and th
   await expect(page.locator(".effects label", { hasText: "Krümel" }).locator("output")).toHaveText("8");
   expect(errors).toEqual([]);
 });
+
+test("Deep House and Ambient: their tempo, their drums, and both play", async ({ page }) => {
+  const errors = watchErrors(page);
+  await tapSound(page);
+  await page.goto("./");
+  const genre = page.getByRole("combobox", { name: "Genre" });
+  const drums = () => page.evaluate(() => (JSON.parse(localStorage.getItem("nebenbei.jetzt")!) as { groove: { genre: string; drums: { voice: string; step: number }[] } }).groove);
+
+  await genre.selectOption("deephouse");
+  await expect.poll(async () => (await drums()).genre).toBe("deephouse");
+  await expect(page.locator(".mood output")).toContainText(/1(1[89]|2[0-4]) BPM/);
+  expect((await drums()).drums.filter((hit) => hit.voice === "open" && hit.step % 4 === 2).length).toBeGreaterThanOrEqual(8);
+  await page.keyboard.press("Space");
+  await expect.poll(() => loudest(page)).toBeGreaterThan(0.05);
+  await page.keyboard.press("Space");
+
+  await genre.selectOption("ambient");
+  await expect.poll(async () => (await drums()).genre).toBe("ambient");
+  await expect(page.locator(".mood output")).toContainText(/(6[4-9]|7\d|80) BPM/);
+  expect((await drums()).drums.some((hit) => hit.voice === "kick" || hit.voice === "clap")).toBe(false);
+  await page.keyboard.press("Space");
+  await expect.poll(() => loudest(page), { timeout: 10_000 }).toBeGreaterThan(0.02);
+  await page.keyboard.press("Space");
+  expect(errors).toEqual([]);
+});
