@@ -198,7 +198,9 @@ test("rolls, holds, goes back, keeps grooves and survives a reload", async ({ pa
 
   // The rolls and the kept groove are on the day strip.
   await expect(page.locator(".day")).toContainText("gemerkt");
-  await expect(page.locator(".strip .nudged")).toHaveCount(1);
+  // One bar, or two when the test crossed a five-minute line of the clock.
+  await expect(page.locator(".strip .nudged").first()).toBeVisible();
+  expect(await page.locator(".strip .nudged").count()).toBeLessThanOrEqual(2);
   expect(errors).toEqual([]);
 });
 
