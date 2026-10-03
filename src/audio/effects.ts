@@ -96,3 +96,45 @@ export function pickMove(previous: Move, energy: number, rng: () => number): Mov
   }
   return "ruhe";
 }
+
+/*
+ * The mixer: a level per track, 0..100. 80 is the track as the instrument
+ * was measured; above it the track gets louder, up to about +4 dB. The
+ * square makes the slider feel even: halfway down is clearly quieter.
+ */
+
+export type Levels = Record<"drums" | "bass" | "chords" | "melody", number>;
+
+export const DEFAULT_LEVELS: Levels = { drums: 80, bass: 80, chords: 80, melody: 80 };
+
+export const levelGain = (level: number): number => (level / 80) ** 2;
+
+/** Track levels read from storage: anything that is not a whole number from 0 to 100 falls back to 80. */
+export function readLevels(value: unknown): Levels {
+  const stored = value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const levels = { ...DEFAULT_LEVELS };
+  for (const track of Object.keys(levels) as (keyof Levels)[]) {
+    const level = stored[track];
+    if (Number.isInteger(level) && (level as number) >= 0 && (level as number) <= 100) levels[track] = level as number;
+  }
+  return levels;
+}
+
+/*
+ * The last stage before the speakers. Below 0.8 it passes the signal
+ * untouched; above, it bends it smoothly towards 0.98 and never past it,
+ * however loud the mix gets: nothing can clip. It works on half the signal,
+ * so it covers inputs up to twice full scale.
+ */
+
+export const CEILING = 0.98;
+const KNEE = 0.8;
+
+export function softLimit(input: number): number {
+  const size = Math.abs(input);
+  if (size <= KNEE) return input;
+  return Math.sign(input) * (KNEE + (CEILING - KNEE) * Math.tanh((size - KNEE) / (CEILING - KNEE)));
+}
+
+/** softLimit as a WaveShaper curve for an input that was halved before it (the curve spans -1..1, the signal -2..2). */
+export const limitCurve = (): Float32Array<ArrayBuffer> => Float32Array.from({ length: 4097 }, (_, index) => softLimit(2 * (index / 2048 - 1)));

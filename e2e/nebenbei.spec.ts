@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const port = Number.parseInt(process.env.NEBENBEI_E2E_PORT ?? "4308", 10);
 
@@ -98,6 +98,28 @@ test("plays by itself, changes without being touched and fills the day strip", a
   await expect.poll(() => page.evaluate(() => (JSON.parse(localStorage.getItem("nebenbei.jetzt")!) as { groove: { chords: { mode: number } } }).groove.chords.mode)).toBe(4);
   await page.keyboard.press("ArrowLeft");
   await expect(page.locator(".mood output")).toHaveText("Dur · 121 BPM");
+
+  // Everything all the way up, the loudest instruments, no ducking: the output still stays below full scale.
+  const slide = async (input: Locator, value: string): Promise<void> =>
+    input.evaluate((element: HTMLInputElement, to) => {
+      element.value = to;
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    }, value);
+  for (const input of await page.locator(".level").all()) await slide(input, "100");
+  await slide(page.locator(".effects .volume input"), "100");
+  await slide(page.locator(".energy:not(.mood) input"), "10");
+  for (const [name, value] of [["Hall", "10"], ["Echo", "10"], ["Band", "10"], ["Pumpen", "0"]] as const) await slide(page.locator(".effects label", { hasText: name }).locator("input"), value);
+  for (const [track, sound] of [["drums", "tr909"], ["bass", "sub"], ["chords", "saege"], ["melody", "chor"]] as const) await page.locator(`.track.${track} .sound`).selectOption(sound);
+  let loudestAtFull = 0;
+  for (let look = 0; look < 30; look += 1) {
+    loudestAtFull = Math.max(loudestAtFull, await loudest(page));
+    await page.waitForTimeout(200);
+  }
+  expect(loudestAtFull).toBeGreaterThan(0.5);
+  expect(loudestAtFull).toBeLessThanOrEqual(0.981);
+  // A track turned all the way down steps back.
+  await slide(page.locator(".track.melody .level"), "0");
+  await expect(page.locator(".track.melody")).toHaveClass(/silent/);
 
   await page.keyboard.press("Space");
   await expect(play(page)).toHaveText("Start");

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch, watchEffect } from "vue";
-import type { Effects } from "./audio/effects";
-import { DEFAULT_EFFECTS, EFFECT_RANGES, MOVE_NAMES } from "./audio/effects";
+import type { Effects, Levels } from "./audio/effects";
+import { DEFAULT_EFFECTS, DEFAULT_LEVELS, EFFECT_RANGES, MOVE_NAMES } from "./audio/effects";
 import { Engine } from "./audio/engine";
 import { GROUPS, KITS, PATCHES } from "./audio/instruments";
 import { noted, stripOf } from "./day";
@@ -30,6 +30,7 @@ const energy = ref(session?.energy ?? 5);
 const mood = ref(groove.value.chords.mode);
 const effects = reactive<Effects>(session?.effects ?? { ...DEFAULT_EFFECTS });
 const dj = ref(session?.dj ?? false);
+const levels = reactive<Levels>(session?.levels ?? { ...DEFAULT_LEVELS });
 /** What the DJ does right now, as the page says it. */
 const djMove = ref(MOVE_NAMES.ruhe);
 const sky = ref<HTMLCanvasElement | null>(null);
@@ -48,13 +49,14 @@ watch(energy, (value) => (engine.energy = value / MAX_ENERGY), { immediate: true
 watch(volume, (value) => (engine.volume = value / 100), { immediate: true });
 watch(effects, (value) => (engine.effects = value), { deep: true, immediate: true });
 watch(dj, (on) => (engine.dj = on), { immediate: true });
+watch(levels, (value) => (engine.levels = value), { deep: true, immediate: true });
 watch(groove, (value) => (mood.value = value.chords.mode));
 watch(mood, (mode) => {
   if (mode === groove.value.chords.mode) return;
   onBarLine(() => show({ ...groove.value, chords: { ...groove.value.chords, mode } }, ["chords"]));
 });
 watchEffect(() => {
-  if (!saveSession({ groove: groove.value, energy: energy.value, volume: volume.value, held: [...held.value], effects: { ...effects }, dj: dj.value })) saveFailed.value = true;
+  if (!saveSession({ groove: groove.value, energy: energy.value, volume: volume.value, held: [...held.value], effects: { ...effects }, levels: { ...levels }, dj: dj.value })) saveFailed.value = true;
 });
 watch(logbook, (value) => {
   if (!saveLogbook(value)) saveFailed.value = true;
@@ -380,7 +382,7 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
     </div>
 
     <section class="tracks" aria-label="Spuren">
-      <div v-for="(lane, index) in lanes" :key="lane.id" class="track" :class="[lane.id, { changed: changed.has(lane.id), held: held.has(lane.id) }]">
+      <div v-for="(lane, index) in lanes" :key="lane.id" class="track" :class="[lane.id, { changed: changed.has(lane.id), held: held.has(lane.id), silent: !levels[lane.id] }]">
         <span class="name">
           <span><kbd>{{ index + 1 }}</kbd> {{ lane.name }}</span>
           <select :key="lane.sound" class="sound swap" :value="lane.sound" :aria-label="`Instrument der Spur ${lane.name}`" @change="chooseSound(lane.id, $event)">
@@ -388,6 +390,7 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
               <option v-for="option in group.options" :key="option.id" :value="option.id">{{ option.name }}</option>
             </optgroup>
           </select>
+          <input v-model.number="levels[lane.id]" class="level" type="range" min="0" max="100" :aria-label="`Lautstärke ${lane.name}`" :title="`Lautstärke ${levels[lane.id]}`" />
         </span>
         <div class="lane-box">
           <span :ref="keepElement(glows, index)" class="glow" />

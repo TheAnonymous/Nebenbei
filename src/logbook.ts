@@ -1,5 +1,5 @@
-import type { Effects } from "./audio/effects";
-import { readEffects } from "./audio/effects";
+import type { Effects, Levels } from "./audio/effects";
+import { readEffects, readLevels } from "./audio/effects";
 import type { Day } from "./day";
 import { parseDay } from "./day";
 import type { Groove, TrackId } from "./music/groove";
@@ -30,6 +30,8 @@ export interface Session {
   volume: number;
   held: TrackId[];
   effects: Effects;
+  /** The level of each track, 0..100. */
+  levels: Levels;
   /** Whether the DJ plays the effects. */
   dj: boolean;
 }
@@ -64,7 +66,7 @@ export function parseLogbook(json: string | null): Logbook {
 }
 
 export function parseSession(json: string | null): Session | null {
-  const { groove: stored, energy, volume, held, effects, dj } = parse(json);
+  const { groove: stored, energy, volume, held, effects, levels, dj } = parse(json);
   const groove = readGroove(stored);
   if (!groove) return null;
   return {
@@ -73,6 +75,7 @@ export function parseSession(json: string | null): Session | null {
     volume: typeof volume === "number" && volume >= 0 && volume <= 100 ? volume : 80,
     held: Array.isArray(held) ? TRACKS.filter((track) => held.includes(track)) : [],
     effects: readEffects(effects),
+    levels: readLevels(levels),
     dj: dj === true,
   };
 }

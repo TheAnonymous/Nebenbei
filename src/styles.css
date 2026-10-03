@@ -196,6 +196,21 @@ kbd {
   font-weight: 600;
 }
 
+/* The track's level, small under its menu. */
+.level {
+  height: 14px;
+  accent-color: var(--color);
+}
+
+/* A track turned all the way down steps back. */
+.silent .lane {
+  opacity: 0.35;
+}
+
+.lane {
+  transition: opacity 0.3s;
+}
+
 /* The instrument of the track, as a menu, with a small arrow that says so. */
 .sound {
   appearance: none;

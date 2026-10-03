@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { Effects, Move } from "../src/audio/effects";
-import { DEFAULT_EFFECTS, djEffects, EFFECT_RANGES, MOVES, pickMove } from "../src/audio/effects";
+import { CEILING, DEFAULT_EFFECTS, djEffects, EFFECT_RANGES, levelGain, limitCurve, MOVES, pickMove, softLimit } from "../src/audio/effects";
 
 /** mulberry32: the same seed gives the same moves. */
 function seeded(seed: number): () => number {
@@ -60,4 +60,31 @@ it("leaves a calm groove alone more often and never repeats a move", () => {
   expect(share(1, "anlauf")).toBeGreaterThan(share(0, "anlauf"));
   expect(share(1, "pumpen")).toBeGreaterThan(share(0, "pumpen"));
   for (const move of MOVES) expect(share(0.5, move)).toBeGreaterThan(0);
+});
+
+it("never lets the end of the chain past the ceiling", () => {
+  // Quiet and normal signals pass untouched.
+  for (const input of [0, 0.1, -0.5, 0.8, -0.8]) expect(softLimit(input)).toBe(input);
+  // Above the knee it bends smoothly, keeps rising and never passes the ceiling, up to far past full scale.
+  let before = softLimit(0.8);
+  for (let input = 0.801; input <= 20; input += 0.001) {
+    const output = softLimit(input);
+    expect(output).toBeGreaterThanOrEqual(before);
+    expect(output).toBeLessThanOrEqual(CEILING);
+    expect(softLimit(-input)).toBe(-output);
+    before = output;
+  }
+  // The WaveShaper curve: halved input from -1 to 1, the whole curve inside the ceiling, the middle untouched.
+  const curve = limitCurve();
+  expect(curve.length % 2).toBe(1);
+  expect(Math.max(...curve.map(Math.abs))).toBeLessThanOrEqual(CEILING);
+  expect(curve[(curve.length - 1) / 2]).toBe(0);
+  expect(curve[Math.round(((0.5 / 2 + 1) * (curve.length - 1)) / 2)]).toBeCloseTo(0.5, 6);
+});
+
+it("sets the track levels with 80 as the measured level", () => {
+  expect(levelGain(80)).toBe(1);
+  expect(levelGain(0)).toBe(0);
+  expect(levelGain(40)).toBe(0.25);
+  expect(20 * Math.log10(levelGain(100))).toBeCloseTo(3.9, 1);
 });

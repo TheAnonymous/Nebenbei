@@ -1,8 +1,8 @@
 import type { DrumVoice, Feel, Groove, TrackId } from "../music/groove";
 import { BASS_STEPS, chordPitches, DRUM_STEPS, feelOf, LOOP_STEPS, plays, STAB_STEPS, STEPS_PER_BAR, tonePitch } from "../music/groove";
 import { Clock } from "./clock";
-import type { Effects, Move } from "./effects";
-import { DEFAULT_EFFECTS, djEffects, pickMove } from "./effects";
+import type { Effects, Levels, Move } from "./effects";
+import { DEFAULT_EFFECTS, DEFAULT_LEVELS, djEffects, levelGain, limitCurve, pickMove } from "./effects";
 import type { Patch } from "./instruments";
 import { KITS, PATCHES } from "./instruments";
 import { playThroughSilentSwitch } from "./ios-audio";
@@ -17,6 +17,8 @@ import { playThroughSilentSwitch } from "./ios-audio";
  * tempo, swing, brightness, space; it changes on the bar line, and the tempo
  * glides there. The effects are set anew on every sixteenth, so the DJ can
  * play them from here, in time, even while the tab is in the background.
+ * Every track has its own level, which also sets how much of it goes into
+ * the room and the echo. The end of the chain cannot clip (softLimit).
  */
 
 const LOOKAHEAD_SECONDS = 0.2;
@@ -37,7 +39,15 @@ export interface Pulse {
 /** How loud an instrument is on each track, against one melody note: a bass note, a chord of four. */
 const ROLE_LEVEL = { bass: 1.6, chords: 0.4, melody: 1 } as const;
 
+/** A track's level: one gain for what goes straight on, one for each send, all moved together. */
+interface Strip {
+  dry: GainNode;
+  room: GainNode;
+  echo: GainNode;
+}
+
 interface Graph {
+  tracks: Record<TrackId, Strip>;
   /** Where the drums go: straight onto the tape. */
   drums: GainNode;
   /** Where everything else goes; the kick ducks it. */
@@ -83,6 +93,7 @@ export class Engine {
   /** The energy the running bar was started with: instruments come and go on the bar line. */
   private barEnergy = 0.5;
   private volumeNow = 0.8;
+  private levelsNow: Levels = { ...DEFAULT_LEVELS };
   /** Your settings, and what plays on the sixteenth being scheduled: the same, or what the DJ makes of them. */
   private effectsNow: Effects = { ...DEFAULT_EFFECTS };
   private live: Effects = { ...DEFAULT_EFFECTS };
@@ -103,6 +114,17 @@ export class Engine {
   set volume(value: number) {
     this.volumeNow = value;
     if (this.context && this.graph) this.graph.master.gain.setTargetAtTime(value, this.context.currentTime, 0.03);
+  }
+
+  /** The tracks' levels (0..100 each), right away and smoothly. */
+  set levels(value: Levels) {
+    this.levelsNow = { ...value };
+    const { context, graph } = this;
+    if (!context || !graph) return;
+    for (const track of Object.keys(value) as TrackId[]) {
+      const strip = graph.tracks[track];
+      for (const node of [strip.dry, strip.room, strip.echo]) node.gain.setTargetAtTime(levelGain(value[track]), context.currentTime, 0.03);
+    }
   }
 
   /** Takes effect from the next sixteenth that is scheduled, a moment later. */
@@ -230,6 +252,10 @@ export class Engine {
   }
 
   private pulse(pulse: Pulse): void {
+    // The picture shows what is heard: a silent track does not light up.
+    const level = Math.min(1, levelGain(this.levelsNow[pulse.track]));
+    if (!level) return;
+    pulse.vel *= level;
     // Nobody may be looking (a background tab): keep only the last moments.
     if (this.pulses.length > 200) this.pulses = this.pulses.slice(-100);
     this.pulses.push(pulse);
@@ -238,7 +264,8 @@ export class Engine {
   // ---- Voices --------------------------------------------------------------
 
   private drum(voice: DrumVoice, vel: number, time: number): void {
-    const { drums, music, room } = this.graph!;
+    const { music } = this.graph!;
+    const { dry: drums, room } = this.graph!.tracks.drums;
     const kit = KITS[this.groove.sounds.drums] ?? KITS.staubig!;
     switch (voice) {
       case "kick": {
@@ -280,7 +307,7 @@ export class Engine {
 
   /** The chord of the bar as a soft bed; it steps back as the energy rises and the stabs take over. */
   private pad(pitches: number[], time: number, energy: number): void {
-    const { music, room } = this.graph!;
+    const { dry: music, room } = this.graph!.tracks.chords;
     const bar = this.stepSeconds * STEPS_PER_BAR;
     const filter = this.filter("lowpass", (380 + 700 * energy) * this.feel.brightness, 1);
     for (const pitch of pitches) {
@@ -297,7 +324,7 @@ export class Engine {
   /** A note or a chord on a track, played by the track's instrument. The bass stays dry, chords go into the room, the melody into the echo too. */
   private play(track: keyof typeof ROLE_LEVEL, pitches: number[], len: number, vel: number, time: number, energy: number): void {
     const context = this.context!;
-    const { music, room, echo } = this.graph!;
+    const { dry, room, echo } = this.graph!.tracks[track];
     const patch: Patch = PATCHES[this.groove.sounds[track]] ?? PATCHES.sub!;
     const { attack, hold = len * this.stepSeconds * 0.9, release } = patch.amp;
     const seconds = Math.max(attack, hold) + 3 * release + 0.05;
@@ -359,7 +386,7 @@ export class Engine {
       this.osc("sine", patch.tremolo.rate, time, seconds).connect(depth).connect(tremolo.gain);
       output = amp.connect(tremolo);
     }
-    output.connect(music);
+    output.connect(dry);
     if (track !== "bass") output.connect(room);
     if (track === "melody") output.connect(echo);
   }
@@ -384,7 +411,8 @@ export class Engine {
 
   /** A burst of filtered noise on the drum bus; returns its output for extra sends. */
   private noise(time: number, peak: number, type: BiquadFilterType, frequency: number, attack: number, release: number): GainNode {
-    const { noise, drums } = this.graph!;
+    const { noise } = this.graph!;
+    const drums = this.graph!.tracks.drums.dry;
     const source = this.context!.createBufferSource();
     source.buffer = noise;
     source.loop = true;
@@ -423,7 +451,8 @@ export class Engine {
     glide(graph.wow.gain, 0.0003 * tape);
     glide(graph.flutter.gain, 0.000004 * tape);
     glide(graph.dust.gain, 0.2 * tape);
-    glide(graph.drive.gain, 0.7 + 0.06 * tape);
+    // Half of it: the saturation curve spans twice full scale (see build).
+    glide(graph.drive.gain, 0.5 * (0.7 + 0.06 * tape));
     // Left of the middle the lowpass comes down to 300 Hz, right of it the highpass climbs to 2 kHz.
     glide(graph.dull.frequency, filter < 0 ? 20000 * (300 / 20000) ** (-filter / 5) : 20000);
     glide(graph.thin.frequency, filter > 0 ? 20 * (2000 / 20) ** (filter / 5) : 20);
@@ -455,14 +484,16 @@ export class Engine {
     };
 
     // The tape: a delay whose length wobbles bends the pitch of everything on it,
-    // then saturation and the lowpass of the energy.
+    // then saturation and the lowpass of the energy. The saturation curve spans
+    // twice full scale and the drive halves the signal, so a loud mix bends
+    // further into it instead of hitting the curve's end.
     const wobble = context.createDelay(0.05);
     wobble.delayTime.value = 0.006;
     const wow = lfo(0.31, wobble.delayTime);
     const flutter = lfo(5.3, wobble.delayTime);
     const drive = gain(1);
     const saturation = context.createWaveShaper();
-    saturation.curve = Float32Array.from({ length: 1024 }, (_, index) => Math.tanh(1.6 * (index / 511.5 - 1)));
+    saturation.curve = Float32Array.from({ length: 2048 }, (_, index) => Math.tanh(3.2 * (index / 1023.5 - 1)));
     const tone = this.filter("lowpass", toneCutoff(this.energyNow) * this.feel.brightness, 0.5);
     const dull = this.filter("lowpass", 20000, 0.9);
     const thin = this.filter("highpass", 20, 0.9);
@@ -472,7 +503,12 @@ export class Engine {
     limiter.attack.value = 0.01;
     limiter.release.value = 0.2;
     const master = gain(this.volumeNow);
-    wobble.connect(drive).connect(saturation).connect(tone).connect(dull).connect(thin).connect(limiter).connect(master).connect(context.destination);
+    // Chrome's compressor adds make-up gain and lets the start of a hit through, so it alone can clip.
+    // The last stage cannot: it never goes past CEILING (effects.ts).
+    const ceiling = context.createWaveShaper();
+    ceiling.curve = limitCurve();
+    // No oversampling: its resampling filter would ring past the curve's ceiling. The bend is gentle enough without.
+    wobble.connect(drive).connect(saturation).connect(tone).connect(dull).connect(thin).connect(limiter).connect(master).connect(gain(0.5)).connect(ceiling).connect(context.destination);
 
     const drums = gain(this.feel.punch);
     drums.connect(wobble);
@@ -501,11 +537,23 @@ export class Engine {
     record.connect(dust).connect(music);
     record.start();
 
+    const strip = (track: TrackId): Strip => {
+      const level = levelGain(this.levelsNow[track]);
+      const dry = gain(level);
+      dry.connect(track === "drums" ? drums : music);
+      const send = gain(level);
+      send.connect(room);
+      const toEcho = gain(level);
+      toEcho.connect(echo);
+      return { dry, room: send, echo: toEcho };
+    };
+    const tracks = { drums: strip("drums"), bass: strip("bass"), chords: strip("chords"), melody: strip("melody") };
+
     const noise = context.createBuffer(1, context.sampleRate, context.sampleRate);
     const samples = noise.getChannelData(0);
     for (let index = 0; index < samples.length; index += 1) samples[index] = Math.random() * 2 - 1;
 
-    return { drums, music, room, echo, echoFeedback, wow, flutter, dust, drive, echoTime: delay.delayTime, tone, dull, thin, master, noise };
+    return { tracks, drums, music, room, echo, echoFeedback, wow, flutter, dust, drive, echoTime: delay.delayTime, tone, dull, thin, master, noise };
   }
 }
 

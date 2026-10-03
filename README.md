@@ -40,6 +40,16 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
   Die Lautstärken sind auf der jeweiligen Stammspur gemessen angeglichen.
   Stimmung und Instrumente gehören zum Groove: Würfeln lässt sie stehen, das
   Logbuch merkt sie sich.
+- **Lautstärke pro Spur:** der kleine Regler unter dem Instrument. Bei 80
+  klingt die Spur so, wie das Instrument eingemessen ist, darüber bis etwa
+  4 dB lauter, ganz unten ist sie stumm (die Spur wird dann blass). Er regelt
+  auch, wie viel von der Spur in Hall und Echo geht.
+- **Kein Übersteuern:** Die letzte Stufe vor den Lautsprechern lässt das Signal
+  bis 0,8 unberührt und biegt alles darüber weich gegen 0,98, nie darüber,
+  egal wie laut die Spuren, die Effekte und die Lautstärke stehen. Bei den
+  Grundeinstellungen greift sie praktisch nie (gemessen: 0,01 % der Samples).
+  Die Bandsättigung davor deckt das Doppelte des Vollausschlags ab, damit ein
+  lauter Mix weich in sie hineinläuft statt an ihr Ende zu stoßen.
 - **Effekte:** Hall, Echo, Band (Leiern, Rauschen, Sättigung), Pumpen (wie tief
   alles unter der Kick wegtaucht) und ein Filter (links dumpf, rechts dünn,
   Mitte aus).
@@ -76,7 +86,7 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
 - **Heute.** Der Tagesstreifen zeigt den Arbeitstag in Fünf-Minuten-Balken: so
   hoch wie die Energie, mit heller Kappe, wo gewürfelt oder zurückgeholt wurde,
   und rosa, wo ein Groove gemerkt wurde. Er beginnt jeden Tag neu.
-- Der laufende Groove, Energie, Lautstärke, Effekte, gehaltene Spuren, das Logbuch und
+- Der laufende Groove, Energie, Lautstärke, Spurlautstärken, Effekte, DJ, gehaltene Spuren, das Logbuch und
   der Tagesstreifen liegen im Speicher des Browsers (`localStorage`) und
   überstehen das Neuladen. Was von dort zurückkommt, wird vor dem Abspielen
   geprüft.
