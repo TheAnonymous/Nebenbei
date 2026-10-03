@@ -95,7 +95,7 @@ test("plays by itself, changes without being touched and fills the day strip", a
   for (let press = 0; press < 4; press += 1) await page.keyboard.press("ArrowRight");
   await expect(page.locator(".mood output")).toHaveText("Lydisch · 126 BPM");
   await expect(chords).not.toHaveText(sad!, { timeout: 4_000 });
-  await expect(chords).toContainText("maj");
+  await expect.poll(() => page.evaluate(() => (JSON.parse(localStorage.getItem("nebenbei.jetzt")!) as { groove: { chords: { mode: number } } }).groove.chords.mode)).toBe(4);
   await page.keyboard.press("ArrowLeft");
   await expect(page.locator(".mood output")).toHaveText("Dur · 121 BPM");
 
@@ -168,6 +168,11 @@ test("rolls, holds, goes back, keeps grooves and survives a reload", async ({ pa
   // While the music plays, a roll waits for the bar line.
   await page.keyboard.press("Space");
   await expect(play(page)).toHaveText("Pause");
+  // Early in a bar (the line over the lanes says where), so the next bar line is about a second away.
+  await page.waitForFunction(() => {
+    const position = Number(/translateX\(([\d.]+)%\)/.exec(document.querySelector<HTMLElement>(".lane b")?.style.transform ?? "")?.[1] ?? -100) / 100;
+    return position % 16 >= 1 && position % 16 < 6;
+  });
   await page.keyboard.press("3");
   const dice = page.getByRole("button", { name: "Akkorde würfeln" });
   await expect(dice).toHaveClass(/waiting/);

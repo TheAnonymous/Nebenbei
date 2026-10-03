@@ -195,7 +195,8 @@ export function startVisual(canvas: HTMLCanvasElement, scene: () => Scene, feedb
     frame += 1;
     // Paused, the sky only drifts slowly: every other frame is smooth enough.
     if ((!playing || still) && frame % 2) return;
-    const seconds = Math.min(0.1, (now - last) / 1000);
+    // The first frame's time can lie a moment before the start: never let time run backwards.
+    const seconds = Math.max(0, Math.min(0.1, (now - last) / 1000));
     last = now;
 
     if (!still) {
