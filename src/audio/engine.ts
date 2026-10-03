@@ -1,5 +1,5 @@
-import type { DrumVoice, Feel, Groove, TrackId } from "../music/groove";
-import { BASS_STEPS, chordPitches, DRUM_STEPS, feelOf, LOOP_STEPS, plays, STAB_STEPS, STEPS_PER_BAR, tonePitch, turnaround } from "../music/groove";
+import type { DrumVoice, Extra, Feel, Groove, TrackId } from "../music/groove";
+import { BASS_STEPS, chordPitches, DRUM_STEPS, EXTRA_ROLES, EXTRA_STEPS, feelOf, LOOP_STEPS, plays, STAB_STEPS, STEPS_PER_BAR, tonePitch, turnaround } from "../music/groove";
 import type { Phase, Tide } from "../music/tide";
 import { nextBar, startTide, tideOffset } from "../music/tide";
 import { Clock } from "./clock";
@@ -68,6 +68,8 @@ interface Strip {
 
 interface Graph {
   tracks: Record<TrackId, Strip>;
+  /** A strip for an extra track that plays like `role`, at `level` (0..100). */
+  newStrip: (role: TrackId, level: number) => Strip;
   /** Where the drums go: straight onto the tape. */
   drums: GainNode;
   /** Where everything else goes; the kick ducks it. */
@@ -124,6 +126,8 @@ export class Engine {
   private barEnergy = 0.5;
   private volumeNow = 0.8;
   private levelsNow: Levels = { ...DEFAULT_LEVELS };
+  /** The extra tracks' strips, made when a track first plays, with the level they are set to. */
+  private extraStrips = new Map<string, { strip: Strip; level: number }>();
   /** Your settings, and what plays on the sixteenth being scheduled: the same, or what the DJ makes of them. */
   private effectsNow: Effects = { ...DEFAULT_EFFECTS };
   private live: Effects = { ...DEFAULT_EFFECTS };
@@ -266,8 +270,16 @@ export class Engine {
     this.scheduled = [...this.scheduled.slice(-15), { index, time, effects: this.live, move: this.dj ? this.move : "ruhe", energy: this.barEnergy, phase: this.tide?.phase ?? null, breakdown, answer }];
     if (!audible) return;
 
-    const { drums, bass, chords, melody } = this.groove;
+    const { drums, bass, chords, melody, extras } = this.groove;
     const energy = this.barEnergy;
+    // Strips of tracks that were taken away go with them, on a bar line.
+    if (inBar === 0) {
+      for (const [id, { strip }] of this.extraStrips) {
+        if (extras.some((extra) => extra.id === id)) continue;
+        for (const node of [strip.dry, strip.room, strip.echo]) node.disconnect();
+        this.extraStrips.delete(id);
+      }
+    }
     const chord = (answer ? turnaround(chords.bars) : chords.bars)[Math.floor(index / STEPS_PER_BAR)]!;
     const at = time + (index % 2 ? this.feel.swing * this.stepSeconds : 0);
     const due = (item: { step: number; min: number }, track: TrackId, length: number): boolean => item.step === index % length && plays(item, track, energy, chords.mode);
@@ -291,25 +303,69 @@ export class Engine {
     for (const note of bass) {
       if (!due(note, "bass", BASS_STEPS)) continue;
       const pitch = tonePitch(chords, chord, note.tone, BASS_LOW);
-      this.play("bass", [pitch], note.len, note.vel, at, energy);
+      this.play("bass", this.groove.sounds.bass, this.graph!.tracks.bass, [pitch], note.len, note.vel, at, energy);
       this.pulse({ time: at, track: "bass", vel: note.vel, pitch });
     }
     for (const stab of chords.stabs) {
       if (!due(stab, "chords", STAB_STEPS)) continue;
-      this.play("chords", chordPitches(chords, chord), stab.len, 1, at, energy);
+      this.play("chords", this.groove.sounds.chords, this.graph!.tracks.chords, chordPitches(chords, chord), stab.len, 1, at, energy);
       this.pulse({ time: at, track: "chords", vel: 0.8 });
     }
     for (const note of melody) {
       if (!due(note, "melody", LOOP_STEPS)) continue;
       const pitch = tonePitch(chords, chord, note.tone, this.feel.melodyLow);
-      this.play("melody", [pitch], note.len, note.vel, at, energy);
+      this.play("melody", this.groove.sounds.melody, this.graph!.tracks.melody, [pitch], note.len, note.vel, at, energy);
       this.pulse({ time: at, track: "melody", vel: note.vel, pitch });
+    }
+    for (const extra of extras) this.playExtra(extra, index, at, chord, energy);
+  }
+
+  /**
+   * One sixteenth of an extra track. It plays like its role's core track and
+   * follows the chord: a second melody an octave under the melody, an
+   * arpeggio between the two, a Fläche holding the chord, percussion on the
+   * drum bus with its own kit.
+   */
+  private playExtra(extra: Extra, index: number, at: number, chord: Groove["chords"]["bars"][number], energy: number): void {
+    const { chords } = this.groove;
+    const role = EXTRA_ROLES[extra.kind];
+    const steps = EXTRA_STEPS[extra.kind];
+    const strip = this.extraStrip(extra, role);
+    const scale = levelGain(extra.level);
+    const due = (item: { step: number; min: number }): boolean => item.step === index % steps && plays(item, role, energy, chords.mode);
+    if (extra.kind === "perkussion") {
+      for (const hit of extra.hits) {
+        if (!due(hit)) continue;
+        this.drum(hit.voice, hit.vel, at, extra.sound, strip);
+        this.pulse({ time: at, track: role, vel: hit.vel, voice: hit.voice }, scale);
+      }
+      return;
+    }
+    for (const note of extra.notes) {
+      if (!due(note)) continue;
+      const low = extra.kind === "gegenstimme" ? this.feel.melodyLow - 12 : this.feel.melodyLow - 5;
+      const pitches = extra.kind === "flaeche" ? chordPitches(chords, chord) : [tonePitch(chords, chord, note.tone, low)];
+      this.play(extra.kind === "flaeche" ? "chords" : "melody", extra.sound, strip, pitches, note.len, note.vel, at, energy);
+      this.pulse({ time: at, track: role, vel: note.vel, pitch: pitches[0]! }, scale);
     }
   }
 
-  private pulse(pulse: Pulse): void {
+  private extraStrip(extra: Extra, role: TrackId): Strip {
+    let entry = this.extraStrips.get(extra.id);
+    if (!entry) {
+      entry = { strip: this.graph!.newStrip(role, extra.level), level: extra.level };
+      this.extraStrips.set(extra.id, entry);
+    } else if (entry.level !== extra.level) {
+      for (const node of [entry.strip.dry, entry.strip.room, entry.strip.echo]) node.gain.setTargetAtTime(levelGain(extra.level), this.context!.currentTime, 0.03);
+      entry.level = extra.level;
+    }
+    return entry.strip;
+  }
+
+  /** `scale` is the track's level when it is not one of the core tracks'. */
+  private pulse(pulse: Pulse, scale?: number): void {
     // The picture shows what is heard: a silent track does not light up.
-    const level = Math.min(1, levelGain(this.levelsNow[pulse.track]));
+    const level = Math.min(1, scale ?? levelGain(this.levelsNow[pulse.track]));
     if (!level) return;
     pulse.vel *= level;
     // Nobody may be looking (a background tab): keep only the last moments.
@@ -319,10 +375,11 @@ export class Engine {
 
   // ---- Voices --------------------------------------------------------------
 
-  private drum(voice: DrumVoice, vel: number, time: number): void {
+  /** A drum hit, by default on the drums' kit and strip; an extra percussion track brings its own. */
+  private drum(voice: DrumVoice, vel: number, time: number, kitId = this.groove.sounds.drums, strip = this.graph!.tracks.drums): void {
     const { music } = this.graph!;
-    const { dry: drums, room } = this.graph!.tracks.drums;
-    const kit = KITS[this.groove.sounds.drums] ?? KITS.staubig!;
+    const { dry: drums, room } = strip;
+    const kit = KITS[kitId] ?? KITS.staubig!;
     switch (voice) {
       case "kick": {
         const { from, to, drop, attack, decay, level, click } = kit.kick;
@@ -330,7 +387,7 @@ export class Engine {
         osc.frequency.setValueAtTime(from, time);
         osc.frequency.exponentialRampToValueAtTime(to, time + drop);
         osc.connect(this.envelope(time, vel * level, attack, 0.06, decay)).connect(drums);
-        if (click) this.noise(time, vel * click, "highpass", 2500, 0.0005, 0.012);
+        if (click) this.noise(time, vel * click, "highpass", 2500, 0.0005, 0.012, drums);
         // The pumping: everything else ducks under the kick and swells back.
         music.gain.setTargetAtTime(1 - 0.1 * this.live.pump * vel, time, 0.005);
         music.gain.setTargetAtTime(1, time + 0.04, 0.1);
@@ -338,23 +395,42 @@ export class Engine {
       }
       case "clap": {
         const { tone, decay, level } = kit.clap;
-        this.noise(time, vel * 0.45 * level, "bandpass", tone, 0.001, 0.012);
-        this.noise(time + 0.011, vel * 0.45 * level, "bandpass", tone, 0.001, 0.012);
-        this.noise(time + 0.022, vel * 0.6 * level, "bandpass", tone, 0.001, decay).connect(room);
+        this.noise(time, vel * 0.45 * level, "bandpass", tone, 0.001, 0.012, drums);
+        this.noise(time + 0.011, vel * 0.45 * level, "bandpass", tone, 0.001, 0.012, drums);
+        this.noise(time + 0.022, vel * 0.6 * level, "bandpass", tone, 0.001, decay, drums).connect(room);
         break;
       }
       case "hat":
-        this.noise(time + jitter(), vel * kit.hat.level, "highpass", kit.hat.tone, 0.001, kit.hat.decay);
+        this.noise(time + jitter(), vel * kit.hat.level, "highpass", kit.hat.tone, 0.001, kit.hat.decay, drums);
         break;
       case "open":
-        this.noise(time, vel * kit.open.level, "highpass", kit.hat.tone - 1000, 0.001, kit.open.decay);
+        this.noise(time, vel * kit.open.level, "highpass", kit.hat.tone - 1000, 0.001, kit.open.decay, drums);
         break;
       case "shaker":
-        this.noise(time + jitter(), vel * 0.5, "bandpass", 4800, 0.012, 0.06);
+        this.noise(time + jitter(), vel * 0.5, "bandpass", 4800, 0.012, 0.06, drums);
         break;
       case "rim": {
         const amp = this.envelope(time, vel * kit.rim.level, 0.001, 0.004, 0.05);
         this.osc("triangle", kit.rim.tone, time, 0.2).connect(amp).connect(drums);
+        amp.connect(room);
+        break;
+      }
+      case "conga":
+      case "bongo": {
+        // A hand drum: a tone that drops a little, and the slap of the hand on top.
+        const [from, to, decay, slap] = voice === "conga" ? [235, 200, 0.22, 1800] : [380, 340, 0.12, 2600];
+        const osc = this.osc("sine", from, time, 0.5);
+        osc.frequency.setValueAtTime(from, time);
+        osc.frequency.exponentialRampToValueAtTime(to, time + 0.04);
+        const amp = this.envelope(time, vel * 0.45, 0.002, 0.01, decay);
+        osc.connect(amp).connect(drums);
+        amp.connect(room);
+        this.noise(time, vel * 0.08, "bandpass", slap, 0.001, 0.015, drums);
+        break;
+      }
+      case "clave": {
+        const amp = this.envelope(time, vel * 0.3, 0.001, 0.005, 0.06);
+        this.osc("sine", 2500, time, 0.15).connect(amp).connect(drums);
         amp.connect(room);
         break;
       }
@@ -377,14 +453,17 @@ export class Engine {
     amp.connect(room);
   }
 
-  /** A note or a chord on a track, played by the track's instrument. The bass stays dry, chords go into the room, the melody into the echo too. */
-  private play(track: keyof typeof ROLE_LEVEL, pitches: number[], len: number, vel: number, time: number, energy: number): void {
+  /**
+   * A note or a chord played by an instrument (`sound`) on a strip, in a role.
+   * The bass stays dry, chords go into the room, the melody into the echo too.
+   */
+  private play(role: keyof typeof ROLE_LEVEL, sound: string, strip: Strip, pitches: number[], len: number, vel: number, time: number, energy: number): void {
     const context = this.context!;
-    const { dry, room, echo } = this.graph!.tracks[track];
-    const patch: Patch = PATCHES[this.groove.sounds[track]] ?? PATCHES.sub!;
+    const { dry, room, echo } = strip;
+    const patch: Patch = PATCHES[sound] ?? PATCHES.sub!;
     const { attack, hold = len * this.stepSeconds * 0.9, release } = patch.amp;
     const seconds = Math.max(attack, hold) + 3 * release + 0.05;
-    const amp = this.envelope(time, patch.level * ROLE_LEVEL[track] * vel, attack, hold, release);
+    const amp = this.envelope(time, patch.level * ROLE_LEVEL[role] * vel, attack, hold, release);
     let input: AudioNode = amp;
 
     if (patch.filter) {
@@ -443,8 +522,8 @@ export class Engine {
       output = amp.connect(tremolo);
     }
     output.connect(dry);
-    if (track !== "bass") output.connect(room);
-    if (track === "melody") output.connect(echo);
+    if (role !== "bass") output.connect(room);
+    if (role === "melody") output.connect(echo);
   }
 
   /** An oscillator that starts at `time` and is gone `seconds` later. */
@@ -465,10 +544,9 @@ export class Engine {
     return filter;
   }
 
-  /** A burst of filtered noise on the drum bus; returns its output for extra sends. */
-  private noise(time: number, peak: number, type: BiquadFilterType, frequency: number, attack: number, release: number): GainNode {
+  /** A burst of filtered noise into `drums` (a drum strip); returns its output for extra sends. */
+  private noise(time: number, peak: number, type: BiquadFilterType, frequency: number, attack: number, release: number, drums: AudioNode): GainNode {
     const { noise } = this.graph!;
-    const drums = this.graph!.tracks.drums.dry;
     const source = this.context!.createBufferSource();
     source.buffer = noise;
     source.loop = true;
@@ -593,8 +671,8 @@ export class Engine {
     record.connect(dust).connect(music);
     record.start();
 
-    const strip = (track: TrackId): Strip => {
-      const level = levelGain(this.levelsNow[track]);
+    const strip = (track: TrackId, setting = this.levelsNow[track]): Strip => {
+      const level = levelGain(setting);
       const dry = gain(level);
       dry.connect(track === "drums" ? drums : music);
       const send = gain(level);
@@ -609,7 +687,7 @@ export class Engine {
     const samples = noise.getChannelData(0);
     for (let index = 0; index < samples.length; index += 1) samples[index] = Math.random() * 2 - 1;
 
-    return { tracks, drums, music, room, echo, echoFeedback, wow, flutter, dust, drive, echoTime: delay.delayTime, tone, dull, thin, master, noise };
+    return { tracks, newStrip: strip, drums, music, room, echo, echoFeedback, wow, flutter, dust, drive, echoTime: delay.delayTime, tone, dull, thin, master, noise };
   }
 }
 

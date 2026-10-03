@@ -9,7 +9,8 @@ import type { Entry } from "./logbook";
 import { loadDay, loadLogbook, loadSession, saveDay, saveLogbook, saveSession } from "./logbook";
 import { mediaKeysPlaying, setUpMediaKeys } from "./media-keys";
 import type { Groove, TrackId } from "./music/groove";
-import { BASS_STEPS, chordName, DRUM_STEPS, DRUM_VOICES, feelOf, grooveName, LOOP_STEPS, MODES, mutate, nextInstrument, plays, roll, rollGroove, STAB_STEPS, TRACKS, turnaround } from "./music/groove";
+import type { ExtraKind } from "./music/groove";
+import { addExtra, BASS_STEPS, chordName, DRUM_STEPS, DRUM_VOICES, EXTRA_KINDS, EXTRA_NAMES, EXTRA_ROLES, EXTRA_STEPS, feelOf, grooveName, isCore, LOOP_STEPS, MAX_TRACKS, MODES, mutate, nextInstrument, PERC_VOICES, plays, removeExtra, roll, rollGroove, STAB_STEPS, trackIds, TRACKS, turnaround, withExtra } from "./music/groove";
 import { PHASE_NAMES } from "./music/tide";
 import { applyUpdate, install, installable, setUpApp, updateReady } from "./pwa";
 import { versionLabel } from "./version";
@@ -47,12 +48,13 @@ const sky = ref<HTMLCanvasElement | null>(null);
 const volume = ref(session?.volume ?? 80);
 const playing = ref(false);
 const step = ref(-1);
-const held = ref(new Set<TrackId>(session?.held));
+/** Tracks are named by id: the four core tracks by their names, the extras by theirs. */
+const held = ref(new Set<string>(session?.held));
 const saveFailed = ref(false);
 /** Tracks whose roll waits for the bar line. */
-const waiting = ref(new Set<TrackId>());
+const waiting = ref(new Set<string>());
 /** Tracks that have just changed and glow for a moment. */
-const changed = ref(new Set<TrackId>());
+const changed = ref(new Set<string>());
 
 const engine = new Engine(groove.value);
 watch(energy, (value) => (engine.energy = value / MAX_ENERGY), { immediate: true });
@@ -86,7 +88,7 @@ function note(event?: "nudge" | "keep"): void {
 }
 
 let changedTimer = 0;
-function show(next: Groove, tracks: readonly TrackId[]): void {
+function show(next: Groove, tracks: readonly string[]): void {
   groove.value = engine.groove = next;
   changed.value = new Set(tracks);
   clearTimeout(changedTimer);
@@ -113,7 +115,7 @@ engine.onBar = (bar, modulate) => {
     show({ ...groove.value, chords: { ...chords, key: (chords.key + modulate) % 12 } }, ["chords"]);
   }
   loops += 1;
-  const free = TRACKS.filter((track) => !held.value.has(track));
+  const free = trackIds(groove.value).filter((track) => !held.value.has(track));
   if (loops === 1 || loops % MUTATE_EVERY_LOOPS !== 1 || !free.length) return;
   const result = mutate(groove.value, Math.random, free);
   show(result.groove, [result.track]);
@@ -146,7 +148,7 @@ function forget(list: "kept" | "trail", entry: Entry): void {
 }
 
 /** New patterns for the tracks that are not held. What was there before goes on the trail. */
-function rollTracks(tracks: readonly TrackId[]): void {
+function rollTracks(tracks: readonly string[]): void {
   const free = tracks.filter((track) => !held.value.has(track) && !waiting.value.has(track));
   if (!free.length) return;
   for (const track of free) waiting.value.add(track);
@@ -162,7 +164,7 @@ function rollTracks(tracks: readonly TrackId[]): void {
   });
 }
 
-/** Plays a groove from the logbook, with its instruments. Held tracks stay as they are. */
+/** Plays a groove from the logbook, with its instruments and its extra tracks. Held tracks stay as they are. */
 function bringBack(source: Groove): void {
   const free = TRACKS.filter((track) => !held.value.has(track));
   const next = { ...groove.value, sounds: { ...groove.value.sounds } };
@@ -170,12 +172,48 @@ function bringBack(source: Groove): void {
     Object.assign(next, { [track]: source[track] });
     next.sounds[track] = source.sounds[track];
   }
-  show(next, free);
+  // Held extras stay; the others make room for the source's, up to eight tracks in all.
+  const kept = groove.value.extras.filter((extra) => held.value.has(extra.id));
+  const room = MAX_TRACKS - TRACKS.length - kept.length;
+  next.extras = [...kept, ...source.extras.filter((extra) => !kept.some((other) => other.id === extra.id)).slice(0, room)];
+  show(next, [...free, ...next.extras.map((extra) => extra.id)]);
 }
 
 /** Puts an instrument on a track, from the very next note. */
-function setSound(track: TrackId, sound: string): void {
-  groove.value = engine.groove = { ...groove.value, sounds: { ...groove.value.sounds, [track]: sound } };
+function setSound(track: string, sound: string): void {
+  groove.value = engine.groove = isCore(track) ? { ...groove.value, sounds: { ...groove.value.sounds, [track]: sound } } : withExtra(groove.value, track, (extra) => ({ ...extra, sound }));
+}
+
+/** A track's level: the core tracks' in the mix, an extra's in the groove. */
+function setLevel(track: string, event: Event): void {
+  const level = Number((event.target as HTMLInputElement).value);
+  if (isCore(track)) levels[track] = level;
+  else groove.value = engine.groove = withExtra(groove.value, track, (extra) => ({ ...extra, level }));
+}
+
+/** Adds an extra track (on the next bar line); like a roll, what was there before goes on the trail. */
+function addTrack(event: Event): void {
+  const menu = event.target as HTMLSelectElement;
+  const kind = menu.value as ExtraKind;
+  menu.value = "";
+  menu.blur();
+  if (!EXTRA_KINDS.includes(kind)) return;
+  onBarLine(() => {
+    const next = addExtra(groove.value, kind, Math.random);
+    if (next === groove.value) return;
+    leaveTrail();
+    note("nudge");
+    show(next, [next.extras.at(-1)!.id]);
+  });
+}
+
+function removeTrack(id: string): void {
+  onBarLine(() => {
+    leaveTrail();
+    note("nudge");
+    held.value.delete(id);
+    show(removeExtra(groove.value, id), []);
+  });
 }
 
 /** The next of the instruments that suit the track. */
@@ -183,7 +221,7 @@ function cycleSound(track: TrackId): void {
   setSound(track, nextInstrument(track, groove.value.sounds[track]));
 }
 
-/** The menu of a track: the kits for the drums, every instrument in its group for the others. */
+/** The menu of a track: the kits for drums and percussion, every instrument in its group for the others. */
 const KIT_MENU = [{ group: "Kits", options: Object.entries(KITS).map(([id, kit]) => ({ id, name: kit.name })) }];
 const INSTRUMENT_MENU = GROUPS.map((group) => ({
   group,
@@ -192,7 +230,7 @@ const INSTRUMENT_MENU = GROUPS.map((group) => ({
     .map(([id, patch]) => ({ id, name: patch.name })),
 }));
 
-function chooseSound(track: TrackId, event: Event): void {
+function chooseSound(track: string, event: Event): void {
   const menu = event.target as HTMLSelectElement;
   setSound(track, menu.value);
   // Back to the page's keys: the arrows are energy and mood again, not the menu.
@@ -219,7 +257,7 @@ function back(): void {
   });
 }
 
-function toggleHold(track: TrackId): void {
+function toggleHold(track: string): void {
   if (!held.value.delete(track)) held.value.add(track);
 }
 
@@ -260,11 +298,11 @@ function follow(): void {
   frame = requestAnimationFrame(follow);
 }
 
-/** The sky reports how strongly each track sounds; the page glows along. */
+/** The sky reports how strongly each track sounds; the page glows along, every extra track with the core track it plays like. */
 function glow(levels: readonly number[], kick: number): void {
-  TRACKS.forEach((track, index) => {
+  lanes.value.forEach((lane, index) => {
     const element = glows[index];
-    if (element) element.style.opacity = levels[ROWS[track]]!.toFixed(3);
+    if (element) element.style.opacity = levels[ROWS[lane.role]]!.toFixed(3);
   });
   if (playButton.value) playButton.value.style.scale = (1 + 0.05 * kick).toFixed(4);
 }
@@ -287,9 +325,9 @@ function onKey(event: KeyboardEvent): void {
   if (target === "SELECT") return;
   const energyStep = event.key === "ArrowUp" ? 1 : event.key === "ArrowDown" ? -1 : 0;
   const moodStep = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-  // The physical keys, so Shift+1 and the row below the digits work on every keyboard layout.
+  // The physical keys, so Shift+1 and the row below the digits work on every keyboard layout. 1 to 8 are the tracks in their order.
   const digit = /^Digit(\d)$/.exec(event.code)?.[1];
-  const track = digit ? TRACKS[Number(digit) - 1] : undefined;
+  const track = digit && digit !== "0" ? trackIds(groove.value)[Number(digit) - 1] : undefined;
   const soundTrack = TRACKS[["KeyQ", "KeyW", "KeyE", "KeyR"].indexOf(event.code)];
   if (energyStep || moodStep) {
     // A focused slider moves by itself.
@@ -300,7 +338,7 @@ function onKey(event: KeyboardEvent): void {
   else if (track && event.shiftKey) toggleHold(track);
   else if (track) rollTracks([track]);
   else if (soundTrack) cycleSound(soundTrack);
-  else if (digit === "0") rollTracks(TRACKS);
+  else if (digit === "0") rollTracks(trackIds(groove.value));
   else if (event.key.toLowerCase() === "z") back();
   else if (event.key.toLowerCase() === "m") keep();
   else if (event.code === "KeyD") dj.value = !dj.value;
@@ -326,7 +364,7 @@ onMounted(() => {
     stopVisual = startVisual(sky.value, () => ({ playing: playing.value, energy: shownEnergy.value, mood: groove.value.chords.mode / (MODES.length - 1), calm: calmSky.value, open: breakdown.value, pulses: () => engine.takePulses() }), glow);
   }
   window.addEventListener("keydown", onKey);
-  setUpMediaKeys({ play: () => setPlaying(true), pause: () => setPlaying(false), next: () => rollTracks(TRACKS), previous: back });
+  setUpMediaKeys({ play: () => setPlaying(true), pause: () => setPlaying(false), next: () => rollTracks(trackIds(groove.value)), previous: back });
 });
 
 onBeforeUnmount(() => {
@@ -349,17 +387,52 @@ function across<T extends { step: number }>(items: T[], length: number): T[] {
   return Array.from({ length: LOOP_STEPS / length }, (_, pass) => items.map((item) => ({ ...item, step: item.step + pass * length }))).flat();
 }
 
-const lanes = computed(() => {
-  const { drums, bass, chords, melody, sounds } = groove.value;
+const EXTRA_HINTS: Record<ExtraKind, string> = {
+  perkussion: "Conga, Bongo, Clave, Shaker",
+  gegenstimme: "eine zweite, tiefere Melodie",
+  arpeggio: "läuft durch die Akkordtöne",
+  flaeche: "gehaltene Akkorde",
+};
+
+interface Lane {
+  id: string;
+  name: string;
+  /** The core track it is, or plays like: its colour (for the core tracks), its menu, its row in the sky. */
+  role: TrackId;
+  /** For an extra track, its kind (it gets its own colour). */
+  kind: ExtraKind | null;
+  rows: number;
+  marks: Mark[];
+  labels: string[];
+  sound: string;
+  level: number;
+  menu: typeof KIT_MENU;
+}
+
+const lanes = computed((): Lane[] => {
+  const { drums, bass, chords, melody, sounds, extras } = groove.value;
   // In a breakdown kick and clap pause: their marks wait too.
   const on = (item: { min: number; voice?: string }, track: TrackId): boolean =>
     plays(item, track, shownEnergy.value, chords.mode) && !(breakdown.value && (item.voice === "kick" || item.voice === "clap"));
-  const lane = (id: TrackId, name: string, rows: number, marks: Mark[], labels: string[] = []) => ({ id, name, rows, marks, labels, sound: sounds[id], menu: id === "drums" ? KIT_MENU : INSTRUMENT_MENU });
+  const lane = (id: TrackId, name: string, rows: number, marks: Mark[], labels: string[] = []): Lane => ({ id, name, role: id, kind: null, rows, marks, labels, sound: sounds[id], level: levels[id], menu: id === "drums" ? KIT_MENU : INSTRUMENT_MENU });
   return [
-    lane("drums", "Drums", DRUM_VOICES.length, across(drums, DRUM_STEPS).map((hit) => ({ step: hit.step, len: 1, row: DRUM_VOICES.indexOf(hit.voice), on: on(hit, "drums") }))),
+    lane("drums", "Drums", DRUM_VOICES.length, across(drums, DRUM_STEPS).map((hit) => ({ step: hit.step, len: 1, row: DRUM_VOICES.indexOf(hit.voice as (typeof DRUM_VOICES)[number]), on: on(hit, "drums") }))),
     lane("bass", "Bass", 5, across(bass, BASS_STEPS).map((note) => ({ step: note.step, len: note.len, row: 4 - note.tone, on: on(note, "bass") }))),
     lane("chords", "Akkorde", 1, across(chords.stabs, STAB_STEPS).map((stab) => ({ step: stab.step, len: stab.len, row: 0, on: on(stab, "chords") })), (answering.value ? turnaround(chords.bars) : chords.bars).map((chord) => chordName(chords, chord))),
     lane("melody", "Melodie", 6, melody.map((note) => ({ step: note.step, len: note.len, row: 5 - note.tone, on: on(note, "melody") }))),
+    ...extras.map((extra): Lane => {
+      const role = EXTRA_ROLES[extra.kind];
+      const steps = EXTRA_STEPS[extra.kind];
+      const marks =
+        extra.kind === "perkussion"
+          ? across(extra.hits, steps).map((hit) => ({ step: hit.step, len: 1, row: PERC_VOICES.indexOf(hit.voice as (typeof PERC_VOICES)[number]), on: on(hit, role) }))
+          : across(extra.notes, steps).map((note) => ({ step: note.step, len: note.len, row: extra.kind === "flaeche" ? 0 : 4 - Math.min(4, note.tone), on: on(note, role) }));
+      const rows = extra.kind === "perkussion" ? PERC_VOICES.length : extra.kind === "flaeche" ? 1 : 5;
+      // Two tracks of a kind are told apart by number.
+      const same = extras.filter((other) => other.kind === extra.kind);
+      const name = same.length > 1 ? `${EXTRA_NAMES[extra.kind]} ${same.indexOf(extra) + 1}` : EXTRA_NAMES[extra.kind];
+      return { id: extra.id, name, role, kind: extra.kind, rows, marks, labels: [], sound: extra.sound, level: extra.level, menu: role === "drums" ? KIT_MENU : INSTRUMENT_MENU };
+    }),
   ];
 });
 
@@ -417,15 +490,15 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
     </div>
 
     <section class="tracks" aria-label="Spuren">
-      <div v-for="(lane, index) in lanes" :key="lane.id" class="track" :class="[lane.id, { changed: changed.has(lane.id), held: held.has(lane.id), silent: !levels[lane.id] }]">
+      <div v-for="(lane, index) in lanes" :key="lane.id" class="track" :class="[lane.kind ? ['extra', lane.kind] : lane.id, { changed: changed.has(lane.id), held: held.has(lane.id), silent: !lane.level }]">
         <span class="name">
-          <span><kbd>{{ index + 1 }}</kbd> {{ lane.name }}</span>
+          <span class="title"><kbd>{{ index + 1 }}</kbd> {{ lane.name }}</span>
           <select :key="lane.sound" class="sound swap" :value="lane.sound" :aria-label="`Instrument der Spur ${lane.name}`" @change="chooseSound(lane.id, $event)">
             <optgroup v-for="group in lane.menu" :key="group.group" :label="group.group">
               <option v-for="option in group.options" :key="option.id" :value="option.id">{{ option.name }}</option>
             </optgroup>
           </select>
-          <input v-model.number="levels[lane.id]" class="level" type="range" min="0" max="100" :aria-label="`Lautstärke ${lane.name}`" :title="`Lautstärke ${levels[lane.id]}`" />
+          <input :value="lane.level" class="level" type="range" min="0" max="100" :aria-label="`Lautstärke ${lane.name}`" :title="`Lautstärke ${lane.level}`" @input="setLevel(lane.id, $event)" />
         </span>
         <div class="lane-box">
           <span :ref="keepElement(glows, index)" class="glow" />
@@ -445,6 +518,13 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
         </div>
         <button type="button" :class="{ waiting: waiting.has(lane.id) }" :disabled="held.has(lane.id)" :aria-label="`${lane.name} würfeln`" @click="rollTracks([lane.id])">Würfeln</button>
         <button type="button" class="hold" :aria-pressed="held.has(lane.id)" :aria-label="`${lane.name} festhalten`" @click="toggleHold(lane.id)">{{ held.has(lane.id) ? "Gehalten" : "Halten" }}</button>
+        <button v-if="lane.kind" type="button" class="remove" :aria-label="`Spur ${lane.name} entfernen`" title="Spur entfernen" @click="removeTrack(lane.id)">×</button>
+      </div>
+      <div class="add-track">
+        <select class="add" aria-label="Spur hinzufügen" :disabled="lanes.length >= MAX_TRACKS" @change="addTrack">
+          <option value="" selected>{{ lanes.length >= MAX_TRACKS ? "Acht Spuren, mehr gehen nicht" : "+ Spur hinzufügen" }}</option>
+          <option v-for="kind in EXTRA_KINDS" :key="kind" :value="kind">{{ EXTRA_NAMES[kind] }}: {{ EXTRA_HINTS[kind] }}</option>
+        </select>
       </div>
     </section>
 
@@ -506,7 +586,7 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
     </section>
 
     <p class="keys">
-      <kbd>Leertaste</kbd> Start/Pause · <kbd>1</kbd>–<kbd>4</kbd> Spur würfeln · <kbd>Shift</kbd>+<kbd>1</kbd>–<kbd>4</kbd> Spur festhalten · <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> Instrument wechseln · <kbd>0</kbd> alles würfeln · <kbd>Z</kbd> zurück · <kbd>M</kbd> merken · <kbd>D</kbd> DJ · <kbd>G</kbd> Gezeiten · <kbd>H</kbd> ruhiger Himmel ·
+      <kbd>Leertaste</kbd> Start/Pause · <kbd>1</kbd>–<kbd>8</kbd> Spur würfeln · <kbd>Shift</kbd>+<kbd>1</kbd>–<kbd>8</kbd> Spur festhalten · <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> Instrument wechseln · <kbd>0</kbd> alles würfeln · <kbd>Z</kbd> zurück · <kbd>M</kbd> merken · <kbd>D</kbd> DJ · <kbd>G</kbd> Gezeiten · <kbd>H</kbd> ruhiger Himmel ·
       <kbd>↑</kbd> <kbd>↓</kbd> Energie · <kbd>←</kbd> <kbd>→</kbd> Stimmung<br />
       Medientasten, auch wenn der Tab im Hintergrund ist: Play/Pause · Weiter würfelt alles, was nicht gehalten ist · Zurück holt den Groove vor dem letzten Würfeln wieder
     </p>

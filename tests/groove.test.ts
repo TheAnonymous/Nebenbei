@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
-import type { Groove, Note, Rng } from "../src/music/groove";
-import { BASS_STEPS, chordName, chordPitches, DRUM_STEPS, feelOf, keyName, instrumentsFor, LOOP_STEPS, MODES, mutate, nextInstrument, plays, roll, rollGroove, STAB_STEPS, tonePitch, TRACKS, turnaround } from "../src/music/groove";
+import type { Extra, Groove, Note, Rng } from "../src/music/groove";
+import { addExtra, BASS_STEPS, chordName, chordPitches, DRUM_STEPS, EXTRA_KINDS, EXTRA_ROLES, EXTRA_STEPS, feelOf, instrumentsFor, keyName, LOOP_STEPS, MAX_TRACKS, MODES, mutate, nextInstrument, PERC_VOICES, plays, readGroove, removeExtra, roll, rollGroove, STAB_STEPS, tonePitch, trackIds, TRACKS, turnaround } from "../src/music/groove";
 
 /** mulberry32: the same seed gives the same music. */
 function seeded(seed: number): Rng {
@@ -72,6 +72,64 @@ it("stays a playable groove through a long day of small changes", () => {
       assertPlayable(groove);
     }
   }
+});
+
+function assertExtra(extra: Extra): void {
+  const steps = EXTRA_STEPS[extra.kind];
+  assert(/^x[0-9a-z]{1,8}$/.test(extra.id), `id ${extra.id}`);
+  assert(instrumentsFor(EXTRA_ROLES[extra.kind]).includes(extra.sound), `sound ${extra.sound}`);
+  assert(extra.level >= 0 && extra.level <= 100);
+  if (extra.kind === "perkussion") {
+    assert(extra.hits.length >= 3, `${extra.hits.length} hits`);
+    for (const hit of extra.hits) assert(hit.step >= 0 && hit.step < steps && (PERC_VOICES as readonly string[]).includes(hit.voice), `hit ${hit.voice}@${hit.step}`);
+    const places = extra.hits.map((hit) => `${hit.voice}@${hit.step}`);
+    assert.equal(new Set(places).size, places.length);
+    return;
+  }
+  assert(extra.notes.length >= 1);
+  extra.notes.forEach((note, index) => {
+    assert(note.step >= 0 && note.len >= 1 && note.tone >= 0 && note.tone <= 7);
+    assert(note.step + note.len <= (extra.notes[index + 1]?.step ?? steps), `${extra.kind} note at ${note.step} overlaps`);
+  });
+}
+
+it("takes up to four extra tracks of any kind, which breed, roll and come back from storage", () => {
+  const rng = seeded(21);
+  let groove = rollGroove(rng);
+  expect(groove.extras).toEqual([]);
+  for (const kind of EXTRA_KINDS) groove = addExtra(groove, kind, rng);
+  expect(trackIds(groove)).toHaveLength(MAX_TRACKS);
+  // An eighth track is the last.
+  expect(addExtra(groove, "arpeggio", rng)).toBe(groove);
+  groove.extras.forEach(assertExtra);
+  expect(groove.extras.map((extra) => extra.kind)).toEqual([...EXTRA_KINDS]);
+
+  // They breed with the others, a little at a time, and stay playable.
+  const before = JSON.stringify(groove.extras);
+  const bred = new Set<string>();
+  for (let n = 0; n < 2000; n += 1) {
+    const result = mutate(groove, rng);
+    bred.add(result.track);
+    groove = result.groove;
+    groove.extras.forEach(assertExtra);
+    assertPlayable(groove);
+  }
+  expect([...bred].sort()).toEqual(trackIds(groove).sort());
+  expect(JSON.stringify(groove.extras)).not.toBe(before);
+
+  // A roll gives an extra a new pattern and keeps its id, instrument and level.
+  const arp = groove.extras[2]!;
+  const rolled = roll({ ...groove, extras: groove.extras.map((extra) => (extra === arp ? { ...extra, level: 55 } : extra)) }, arp.id, rng).extras[2]!;
+  expect(rolled).toMatchObject({ id: arp.id, kind: "arpeggio", sound: arp.sound, level: 55 });
+  assertExtra(rolled);
+
+  // Storage keeps them; broken or doubled ones are left out, and never more than four.
+  expect(readGroove(JSON.parse(JSON.stringify(groove)))).toEqual(groove);
+  const [first] = groove.extras;
+  const stored = { ...groove, extras: [first, first, { ...first, id: "nope" }, { ...first, id: "x9", kind: "tuba" }, ...groove.extras.slice(1), { ...first, id: "x99" }] };
+  expect(readGroove(JSON.parse(JSON.stringify(stored)))!.extras.map((extra) => extra.id)).toEqual(groove.extras.map((extra) => extra.id));
+  // Taking one away leaves the others.
+  expect(trackIds(removeExtra(groove, first!.id))).toHaveLength(MAX_TRACKS - 1);
 });
 
 it("rolls one track and leaves held tracks alone", () => {

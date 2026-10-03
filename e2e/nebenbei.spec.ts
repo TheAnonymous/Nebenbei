@@ -298,3 +298,59 @@ test("installs as an app: manifest and icons load, and after one visit it starts
   await context.setOffline(false);
   expect(errors).toEqual([]);
 });
+
+test("up to eight tracks: four more of their own kinds, each with its key, instrument and level", async ({ page }) => {
+  const errors = watchErrors(page);
+  await tapSound(page);
+  await page.goto("./");
+  const add = page.getByRole("combobox", { name: "Spur hinzufügen" });
+  for (const kind of ["perkussion", "arpeggio", "flaeche", "gegenstimme"]) await add.selectOption(kind);
+  await expect(page.locator(".track")).toHaveCount(8);
+  await expect(page.locator(".track.extra")).toHaveCount(4);
+  await expect(add).toBeDisabled();
+  // Each new track has marks, an instrument and a level of its own.
+  for (const kind of ["perkussion", "arpeggio", "flaeche", "gegenstimme"]) {
+    const track = page.locator(`.track.${kind}`);
+    expect(await track.locator(".lane i").count()).toBeGreaterThan(0);
+    expect(await track.locator(".sound").inputValue()).not.toBe("");
+  }
+  await page.locator(".track.arpeggio .sound").selectOption("marimba");
+  await page.locator(".track.flaeche .level").evaluate((input: HTMLInputElement) => {
+    input.value = "30";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  // 5 to 8 roll the extra tracks, Shift holds them.
+  const arpMarks = () => page.locator(".track.arpeggio .lane").evaluate((lane) => [...lane.querySelectorAll("i")].map((mark) => mark.getAttribute("style")).sort().join());
+  await page.keyboard.press("Shift+5");
+  await expect(page.locator(".track.perkussion")).toHaveClass(/held/);
+  const before = await arpMarks();
+  let changed = false;
+  for (let tries = 0; tries < 5 && !changed; tries += 1) {
+    await page.keyboard.press("6");
+    changed = (await arpMarks()) !== before;
+  }
+  expect(changed).toBe(true);
+
+  // The extra tracks play: with only the percussion up, there is sound.
+  for (const input of await page.locator(".track:not(.perkussion) .level").all()) {
+    await input.evaluate((element: HTMLInputElement) => {
+      element.value = "0";
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  await page.keyboard.press("Space");
+  await expect.poll(() => loudest(page), { timeout: 10_000 }).toBeGreaterThan(0.02);
+  await page.keyboard.press("Space");
+
+  // They come back after a reload, with their instrument, level and hold; one can be taken away again.
+  await page.reload();
+  await expect(page.locator(".track.extra")).toHaveCount(4);
+  await expect(page.locator(".track.arpeggio .sound")).toHaveValue("marimba");
+  await expect(page.locator(".track.flaeche .level")).toHaveValue("0");
+  await expect(page.locator(".track.perkussion")).toHaveClass(/held/);
+  await page.getByRole("button", { name: "Spur Fläche entfernen" }).click();
+  await expect(page.locator(".track")).toHaveCount(7);
+  await expect(add).toBeEnabled();
+  expect(errors).toEqual([]);
+});

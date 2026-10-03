@@ -2,7 +2,7 @@ import type { Effects, Levels } from "./audio/effects";
 import { readEffects, readLevels } from "./audio/effects";
 import type { Day } from "./day";
 import { parseDay } from "./day";
-import type { Groove, TrackId } from "./music/groove";
+import type { Groove } from "./music/groove";
 import { readGroove, TRACKS } from "./music/groove";
 
 /*
@@ -28,7 +28,7 @@ export interface Session {
   groove: Groove;
   energy: number;
   volume: number;
-  held: TrackId[];
+  held: string[];
   effects: Effects;
   /** The level of each track, 0..100. */
   levels: Levels;
@@ -75,7 +75,8 @@ export function parseSession(json: string | null): Session | null {
     groove,
     energy: Number.isInteger(energy) && (energy as number) >= 0 && (energy as number) <= 10 ? (energy as number) : 5,
     volume: typeof volume === "number" && volume >= 0 && volume <= 100 ? volume : 80,
-    held: Array.isArray(held) ? TRACKS.filter((track) => held.includes(track)) : [],
+    // Held tracks: core tracks, and extras the groove still has.
+    held: Array.isArray(held) ? [...TRACKS, ...groove.extras.map((extra) => extra.id)].filter((track) => held.includes(track)) : [],
     effects: readEffects(effects),
     levels: readLevels(levels),
     dj: dj === true,

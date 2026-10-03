@@ -9,6 +9,11 @@
   --bass: #d9b45f;
   --chords: #8fb39a;
   --melody: #d99aa8;
+  /* The extra tracks. */
+  --perkussion: #c9b08a;
+  --gegenstimme: #a99be0;
+  --arpeggio: #7cc3cf;
+  --flaeche: #a6c27c;
   color-scheme: dark;
 }
 
@@ -176,7 +181,8 @@ kbd {
 
 .track {
   display: grid;
-  grid-template-columns: 112px 1fr 84px 90px;
+  /* Name, lane, roll, hold, and room for an extra track's × . */
+  grid-template-columns: 128px 1fr 84px 90px 26px;
   align-items: center;
   gap: 10px;
 }
@@ -185,6 +191,76 @@ kbd {
 .track.bass { --color: var(--bass); }
 .track.chords { --color: var(--chords); }
 .track.melody { --color: var(--melody); }
+.track.perkussion { --color: var(--perkussion); }
+.track.gegenstimme { --color: var(--gegenstimme); }
+.track.arpeggio { --color: var(--arpeggio); }
+.track.flaeche { --color: var(--flaeche); }
+
+/* A new track rolls in. */
+.track {
+  animation: arrive 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* A long name never wraps. */
+.name .title {
+  font-size: 15px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remove {
+  padding: 2px 6px;
+  border-color: transparent;
+  background: none;
+  color: var(--dim);
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.remove:hover {
+  color: var(--ink);
+}
+
+.add-track {
+  padding-left: 138px;
+}
+
+/* A Fläche holds its chords: slim bars, so the lane does not turn into a block. */
+.flaeche .lane i {
+  top: 40% !important;
+  height: 22% !important;
+  border-radius: 6px;
+}
+
+/* The menu that adds a track, as a quiet dashed button. */
+.add {
+  appearance: none;
+  padding: 6px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+}
+
+.add:hover:not(:disabled) {
+  border-color: var(--dim);
+  color: var(--ink);
+}
+
+.add:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.add option {
+  background: #27201b;
+  color: var(--ink);
+}
 
 .name {
   display: grid;

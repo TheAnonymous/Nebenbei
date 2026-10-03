@@ -1,4 +1,4 @@
-import type { TrackId } from "../music/groove";
+import type { ExtraKind, TrackId } from "../music/groove";
 
 /*
  * The instruments, as data: the engine plays every one of them with the same
@@ -92,4 +92,12 @@ export const FITS: Record<TrackId, readonly string[]> = {
   bass: ["sub", "rund", "reese", "kontrabass", "kantig", "clav"],
   chords: ["saege", "epiano", "kassettenpiano", "orgel", "m1orgel", "clav", "streicher", "chor", "vibraphon", "glasharfe"],
   melody: ["glocke", "glasharfe", "vibraphon", "marimba", "kalimba", "floete", "pfiff", "gezupft", "gameboy", "kassettenpiano", "streicher", "chor"],
+};
+
+/** The same for the extra tracks. */
+export const EXTRA_FITS: Record<ExtraKind, readonly string[]> = {
+  perkussion: ["kiste", "staubig", "weich", "tr808", "knackig", "tr909"],
+  gegenstimme: ["floete", "kassettenpiano", "vibraphon", "streicher", "pfiff", "glasharfe", "epiano"],
+  arpeggio: ["kalimba", "marimba", "glocke", "gezupft", "vibraphon", "glasharfe", "clav", "epiano"],
+  flaeche: ["streicher", "chor", "saege", "orgel", "kassettenpiano", "glasharfe"],
 };

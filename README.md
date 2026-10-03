@@ -40,6 +40,17 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
   Die Lautstärken sind auf der jeweiligen Stammspur gemessen angeglichen.
   Stimmung und Instrumente gehören zum Groove: Würfeln lässt sie stehen, das
   Logbuch merkt sie sich.
+- **Bis zu acht Spuren:** Unter den vier festen Spuren fügt „+ Spur hinzufügen“
+  bis zu vier weitere hinzu: **Perkussion** (Conga, Bongo, Clave, Rim und
+  Shaker, ohne Kick und Clap, mit eigenem Kit), **Gegenstimme** (eine zweite
+  Melodie eine Oktave tiefer, mit längeren Tönen), **Arpeggio** (läuft in
+  Achteln oder Sechzehnteln durch die Akkordtöne) und **Fläche** (hält die
+  Akkorde, etwa mit Streichern oder Chor). Sie folgen den Akkorden, der
+  Stimmung und den Gezeiten, mutieren mit den anderen, haben ein eigenes
+  Instrument, eine eigene Lautstärke und die Tasten `5`–`8` (würfeln, mit
+  `Shift` festhalten); × nimmt eine wieder weg. Zusätzliche Spuren gehören zum
+  Groove: Das Logbuch merkt sie sich, Zurück holt eine weggenommene wieder.
+  Mit acht Spuren ist der Mix nur etwa 1 dB lauter als mit vier.
 - **Lautstärke pro Spur:** der kleine Regler unter dem Instrument. Bei 80
   klingt die Spur so, wie das Instrument eingemessen ist, darüber bis etwa
   4 dB lauter, ganz unten ist sie stumm (die Spur wird dann blass). Er regelt
@@ -121,8 +132,8 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
 | Eingabe | Wirkung |
 |---|---|
 | Leertaste | Start / Pause |
-| `1`–`4` | Spur würfeln |
-| `Shift` + `1`–`4` | Spur festhalten / loslassen |
+| `1`–`8` | Spur würfeln |
+| `Shift` + `1`–`8` | Spur festhalten / loslassen |
 | `Q` `W` `E` `R` | nächstes passendes Instrument der Spur |
 | `D` | DJ an / aus |
 | `G` | Gezeiten an / aus |

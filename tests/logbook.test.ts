@@ -29,7 +29,7 @@ it("plays grooves from before moods and instruments as they sounded then", () =>
   const { key, bars, stabs } = groove.chords;
   const old = { drums: groove.drums, bass: groove.bass, chords: { key, bars, stabs }, melody: groove.melody };
   const first = { drums: "staubig", bass: "sub", chords: "saege", melody: "glocke" };
-  expect(readGroove(old)).toEqual({ ...old, chords: { key, mode: 0, bars, stabs }, sounds: first });
+  expect(readGroove(old)).toEqual({ ...old, chords: { key, mode: 0, bars, stabs }, sounds: first, extras: [] });
   // Instruments stored by number, from before the library: the second of each track then.
   expect(readGroove({ ...groove, sounds: { drums: 1, bass: 1, chords: 1, melody: 1 } })?.sounds).toEqual({ drums: "knackig", bass: "rund", chords: "epiano", melody: "floete" });
   // An instrument or mood that does not exist falls back the same way; a kit cannot play the bass.

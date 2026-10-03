@@ -1,4 +1,4 @@
-import { FITS, KITS, PATCHES } from "../audio/instruments";
+import { EXTRA_FITS, FITS, KITS, PATCHES } from "../audio/instruments";
 
 /*
  * The groove: four tracks that breed themselves. Everything here is plain
@@ -21,7 +21,9 @@ export const TRACKS = ["drums", "bass", "chords", "melody"] as const;
 export type TrackId = (typeof TRACKS)[number];
 
 export const DRUM_VOICES = ["kick", "clap", "hat", "open", "shaker", "rim"] as const;
-export type DrumVoice = (typeof DRUM_VOICES)[number];
+/** The voices of an extra percussion track: hand drums, a clave, and two from the kit. */
+export const PERC_VOICES = ["conga", "bongo", "clave", "rim", "shaker"] as const;
+export type DrumVoice = (typeof DRUM_VOICES)[number] | (typeof PERC_VOICES)[number];
 
 /** `min` is the energy (0..1) from which a hit, note or stab plays. */
 export interface Hit {
@@ -67,10 +69,38 @@ export interface Groove {
   melody: Note[];
   /** The instrument of each track: a kit for the drums, an instrument (audio/instruments.ts) for the others. */
   sounds: Record<TrackId, string>;
+  /** Up to four more tracks, below the four that every groove has. */
+  extras: Extra[];
 }
 
-/** Everything that can play a track: the kits for the drums, every instrument for the others. */
-export const instrumentsFor = (track: TrackId): readonly string[] => (track === "drums" ? Object.keys(KITS) : Object.keys(PATCHES));
+/*
+ * The extra tracks. Each plays like one of the four core tracks (its role:
+ * which instruments suit it, how the mood thins it out, its row in the sky)
+ * and follows the chords like they do.
+ */
+
+export const EXTRA_KINDS = ["perkussion", "gegenstimme", "arpeggio", "flaeche"] as const;
+export type ExtraKind = (typeof EXTRA_KINDS)[number];
+export const EXTRA_NAMES: Record<ExtraKind, string> = { perkussion: "Perkussion", gegenstimme: "Gegenstimme", arpeggio: "Arpeggio", flaeche: "Fläche" };
+export const EXTRA_ROLES: Record<ExtraKind, TrackId> = { perkussion: "drums", gegenstimme: "melody", arpeggio: "melody", flaeche: "chords" };
+/** How long each kind's pattern is before it repeats, in sixteenths. */
+export const EXTRA_STEPS: Record<ExtraKind, number> = { perkussion: 32, gegenstimme: LOOP_STEPS, arpeggio: 16, flaeche: 16 };
+export const MAX_TRACKS = 8;
+
+/**
+ * Perkussion has hits; the others have notes. A Fläche's notes are held
+ * chords (their tone does not matter), an Arpeggio's walk the chord's tones.
+ * `level` is the track's level (0..100, 80 as measured), `sound` its kit or
+ * instrument; `id` names it among the tracks.
+ */
+export type Extra = { id: string; sound: string; level: number } & ({ kind: "perkussion"; hits: Hit[] } | { kind: "gegenstimme" | "arpeggio" | "flaeche"; notes: Note[] });
+
+/** The ids of all tracks of a groove, in their order on the page: the four core tracks, then the extras. */
+export const trackIds = (groove: Groove): string[] => [...TRACKS, ...groove.extras.map((extra) => extra.id)];
+export const isCore = (track: string): track is TrackId => (TRACKS as readonly string[]).includes(track);
+
+/** Everything that can play a track: the kits for drums and percussion, every instrument for the others. */
+export const instrumentsFor = (role: TrackId): readonly string[] => (role === "drums" ? Object.keys(KITS) : Object.keys(PATCHES));
 
 /** The instrument after `current` among those that suit the track best. */
 export function nextInstrument(track: TrackId, current: string): string {
@@ -209,12 +239,22 @@ const DRUM_EXTRAS: readonly { voice: DrumVoice; steps: readonly number[]; vel: n
   { voice: "rim", steps: [3, 6, 7, 10, 11, 13, 15], vel: 0.5, min: 0.55, max: 5 },
 ];
 
-/** Adds an extra hit, or takes away the one that is already there. */
-function mutateDrums(hits: Hit[], rng: Rng): boolean {
-  const extra = pick(rng, DRUM_EXTRAS);
+/** The hits of an extra percussion track, none of them fixed. */
+const PERC_HITS: typeof DRUM_EXTRAS = [
+  { voice: "conga", steps: [0, 3, 6, 8, 10, 11, 14], vel: 0.6, min: 0.2, max: 6 },
+  { voice: "bongo", steps: [2, 5, 7, 9, 12, 13, 15], vel: 0.55, min: 0.35, max: 6 },
+  { voice: "clave", steps: [0, 3, 6, 10, 12], vel: 0.5, min: 0.3, max: 4 },
+  { voice: "rim", steps: [4, 7, 11, 14], vel: 0.45, min: 0.5, max: 3 },
+  { voice: "shaker", steps: [1, 3, 5, 7, 9, 11, 13, 15], vel: 0.3, min: 0.25, max: 8 },
+];
+
+/** Adds an extra hit, or takes away the one that is already there; at least `least` hits stay. */
+function mutateDrums(hits: Hit[], rng: Rng, table = DRUM_EXTRAS, least = 0): boolean {
+  const extra = pick(rng, table);
   const step = pick(rng, extra.steps) + STEPS_PER_BAR * Math.floor(rng() * (DRUM_STEPS / STEPS_PER_BAR));
   const at = hits.findIndex((hit) => hit.voice === extra.voice && hit.step === step);
   if (at >= 0) {
+    if (hits.length <= least) return false;
     hits.splice(at, 1);
     return true;
   }
@@ -368,6 +408,97 @@ export function turnaround(bars: readonly Chord[]): Chord[] {
   return [first, second, { ...third, degree: (third.degree + 5) % 7 }, { ...fourth, degree: fourth.degree === 4 ? 6 : 4 }];
 }
 
+// ---- The extra tracks ------------------------------------------------------
+
+/** A second voice under the melody: fewer, longer notes. */
+const GEGEN: Line = { steps: LOOP_STEPS, grid: [0, 4, 6, 8, 10, 12, 14], tones: [0, 1, 2, 3, 4], lens: [2, 3, 4, 6], count: [3, 8], min: [0.15, 0.65] };
+/** An arpeggio within one bar: it may sit on every sixteenth. */
+const ARP: Line = { steps: 16, grid: Array.from({ length: 16 }, (_, step) => step), tones: [0, 1, 2, 3, 4], lens: [1, 2], count: [4, 16], min: [0.2, 0.65] };
+/** The arpeggio's figures over the chord's tones. */
+const ARP_SHAPES: readonly (readonly number[])[] = [
+  [0, 1, 2, 3],
+  [3, 2, 1, 0],
+  [0, 1, 2, 3, 2, 1],
+  [0, 2, 1, 3],
+  [0, 1, 2, 4],
+];
+/** How a Fläche holds its chord through the bar. */
+const HOLDS: readonly (readonly [number, number][])[] = [
+  [[0, 16]],
+  [[0, 8], [8, 8]],
+  [[0, 12], [12, 4]],
+  [[0, 6], [6, 10]],
+  [[2, 14]],
+];
+
+function rollArpeggio(rng: Rng): Note[] {
+  const rate = pick(rng, [1, 2]);
+  const shape = pick(rng, ARP_SHAPES);
+  const notes: Note[] = [];
+  for (let step = 0, at = 0; step < 16; step += rate, at += 1) {
+    // On the beat from little energy, in between only with more.
+    const onBeat = step % 4 === 0;
+    notes.push({ step, len: rate, tone: shape[at % shape.length]!, vel: onBeat ? 0.8 : between(rng, 0.55, 0.7), min: onBeat ? 0.2 : between(rng, 0.3, 0.65) });
+  }
+  return notes;
+}
+
+const holdNotes = (rng: Rng, hold: readonly [number, number][]): Note[] => hold.map(([step, len], index) => ({ step, len, tone: 0, vel: 0.8, min: index ? between(rng, 0.3, 0.6) : 0 }));
+
+/** A fresh pattern of a kind. */
+function rollPattern(kind: ExtraKind, rng: Rng): { hits: Hit[] } | { notes: Note[] } {
+  switch (kind) {
+    case "perkussion": {
+      const hits: Hit[] = [];
+      for (let n = 0; n < 30; n += 1) mutateDrums(hits, rng, PERC_HITS, 3);
+      return { hits };
+    }
+    case "gegenstimme":
+      return { notes: rollNotes(rng, GEGEN, 2 * STEPS_PER_BAR, 1) };
+    case "arpeggio":
+      return { notes: rollArpeggio(rng) };
+    default:
+      return { notes: holdNotes(rng, pick(rng, HOLDS)) };
+  }
+}
+
+/** A new extra track of a kind, at the measured level, with an instrument that suits it. */
+export function rollExtra(kind: ExtraKind, rng: Rng): Extra {
+  const id = `x${Math.floor(rng() * 36 ** 6).toString(36)}`;
+  return { id, kind, sound: pick(rng, EXTRA_FITS[kind]), level: 80, ...rollPattern(kind, rng) } as Extra;
+}
+
+/** One small change on an extra track, in place. */
+function mutateExtra(extra: Extra, rng: Rng): boolean {
+  switch (extra.kind) {
+    case "perkussion":
+      return mutateDrums(extra.hits, rng, PERC_HITS, 3);
+    case "gegenstimme":
+      return mutateNotes(extra.notes, rng, GEGEN);
+    case "arpeggio":
+      return mutateNotes(extra.notes, rng, ARP);
+    default: {
+      // A Fläche changes how it holds the bar.
+      const hold = pick(rng, HOLDS);
+      const now = extra.notes.map((note) => `${note.step}:${note.len}`).join();
+      if (hold.map(([step, len]) => `${step}:${len}`).join() === now) return false;
+      extra.notes = holdNotes(rng, hold);
+      return true;
+    }
+  }
+}
+
+/** Adds an extra track (and returns the groove unchanged when it already has eight tracks). */
+export function addExtra(groove: Groove, kind: ExtraKind, rng: Rng): Groove {
+  if (TRACKS.length + groove.extras.length >= MAX_TRACKS) return groove;
+  return { ...groove, extras: [...groove.extras, rollExtra(kind, rng)] };
+}
+
+export const removeExtra = (groove: Groove, id: string): Groove => ({ ...groove, extras: groove.extras.filter((extra) => extra.id !== id) });
+
+/** Changes one extra track by id with `change`, leaving the others alone. */
+export const withExtra = (groove: Groove, id: string, change: (extra: Extra) => Extra): Groove => ({ ...groove, extras: groove.extras.map((extra) => (extra.id === id ? change(extra) : extra)) });
+
 // ---- The whole groove ------------------------------------------------------
 
 export function rollGroove(rng: Rng): Groove {
@@ -378,6 +509,7 @@ export function rollGroove(rng: Rng): Groove {
     chords: rollChords(rng),
     melody: rollNotes(rng, MELODY, 2 * STEPS_PER_BAR, 2),
     sounds: { drums: sound("drums"), bass: sound("bass"), chords: sound("chords"), melody: sound("melody") },
+    extras: [],
   };
 }
 
@@ -413,7 +545,7 @@ const listOf = (value: unknown, item: (fields: Fields) => boolean, least = 0): b
  */
 export function readGroove(value: unknown): Groove | null {
   if (value === null || typeof value !== "object") return null;
-  const { drums, bass, chords, melody, sounds } = value as Fields;
+  const { drums, bass, chords, melody, sounds, extras } = value as Fields;
   if (chords === null || typeof chords !== "object") return null;
   const { key, mode, bars, stabs } = chords as Fields;
   const line = (notes: unknown, steps: number): boolean =>
@@ -424,7 +556,7 @@ export function readGroove(value: unknown): Groove | null {
     return FIRST_SOUNDS[track][whole(stored, 0, 2) ? stored : 0]!;
   };
   const playable =
-    listOf(drums, (hit) => whole(hit.step, 0, DRUM_STEPS - 1) && DRUM_VOICES.includes(hit.voice as DrumVoice) && unit(hit.vel) && unit(hit.min)) &&
+    listOf(drums, (hit) => whole(hit.step, 0, DRUM_STEPS - 1) && DRUM_VOICES.includes(hit.voice as (typeof DRUM_VOICES)[number]) && unit(hit.vel) && unit(hit.min)) &&
     line(bass, BASS_STEPS) &&
     line(melody, LOOP_STEPS) &&
     whole(key, 0, 11) &&
@@ -438,7 +570,38 @@ export function readGroove(value: unknown): Groove | null {
     chords: { key: key as number, mode: whole(mode, 0, MODES.length - 1) ? mode : 0, bars: bars as Chord[], stabs: stabs as Stab[] },
     melody: melody as Note[],
     sounds: { drums: sound("drums"), bass: sound("bass"), chords: sound("chords"), melody: sound("melody") },
+    extras: readExtras(extras, line),
   };
+}
+
+/** The extra tracks of a stored groove: the playable ones, at most four, each id once. Grooves from before extras have none. */
+function readExtras(value: unknown, line: (notes: unknown, steps: number) => boolean): Extra[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const extras: Extra[] = [];
+  for (const entry of value as unknown[]) {
+    if (entry === null || typeof entry !== "object") continue;
+    const { id, kind, sound, level, hits, notes } = entry as Fields;
+    if (typeof id !== "string" || !/^x[0-9a-z]{1,8}$/.test(id) || seen.has(id) || !EXTRA_KINDS.includes(kind as ExtraKind)) continue;
+    const extraKind = kind as ExtraKind;
+    const steps = EXTRA_STEPS[extraKind];
+    const pattern =
+      extraKind === "perkussion"
+        ? listOf(hits, (hit) => whole(hit.step, 0, steps - 1) && PERC_VOICES.includes(hit.voice as (typeof PERC_VOICES)[number]) && unit(hit.vel) && unit(hit.min), 1)
+        : line(notes, steps);
+    if (!pattern) continue;
+    const role = EXTRA_ROLES[extraKind];
+    seen.add(id);
+    extras.push({
+      id,
+      kind: extraKind,
+      sound: typeof sound === "string" && instrumentsFor(role).includes(sound) ? sound : EXTRA_FITS[extraKind][0]!,
+      level: whole(level, 0, 100) ? level : 80,
+      ...(extraKind === "perkussion" ? { hits: hits as Hit[] } : { notes: notes as Note[] }),
+    } as Extra);
+    if (TRACKS.length + extras.length >= MAX_TRACKS) break;
+  }
+  return extras;
 }
 
 const MUTATORS: Record<TrackId, (groove: Groove, rng: Rng) => boolean> = {
@@ -448,18 +611,24 @@ const MUTATORS: Record<TrackId, (groove: Groove, rng: Rng) => boolean> = {
   melody: (groove, rng) => mutateNotes(groove.melody, rng, MELODY),
 };
 
-/** Returns a copy of the groove with a fresh pattern on one track. New chords take bass and melody along; the mood and the instruments stay. */
-export function roll(groove: Groove, track: TrackId, rng: Rng): Groove {
+/**
+ * Returns a copy of the groove with a fresh pattern on one track (a core
+ * track or an extra's id). New chords take the others along; the mood, the
+ * instruments and an extra's level stay.
+ */
+export function roll(groove: Groove, track: string, rng: Rng): Groove {
+  if (!isCore(track)) return withExtra(groove, track, (extra) => ({ ...extra, ...rollPattern(extra.kind, rng) }) as Extra);
   const fresh = rollGroove(rng);
   return track === "chords" ? { ...groove, chords: { ...fresh.chords, mode: groove.chords.mode } } : { ...groove, [track]: fresh[track] };
 }
 
-/** Returns a copy of the groove with one small change on one of `tracks` (at least one), and says which. */
-export function mutate(groove: Groove, rng: Rng, tracks: readonly TrackId[] = TRACKS): { groove: Groove; track: TrackId } {
+/** Returns a copy of the groove with one small change on one of `tracks` (core tracks or extras' ids, at least one), and says which. */
+export function mutate(groove: Groove, rng: Rng, tracks: readonly string[] = trackIds(groove)): { groove: Groove; track: string } {
   // An attempt can come up empty (a full bar, a place already taken); the next one succeeds soon enough.
   for (;;) {
     const track = pick(rng, tracks);
     const next = structuredClone(groove);
-    if (MUTATORS[track](next, rng)) return { groove: next, track };
+    const extra = next.extras.find((candidate) => candidate.id === track);
+    if (isCore(track) ? MUTATORS[track](next, rng) : extra !== undefined && mutateExtra(extra, rng)) return { groove: next, track };
   }
 }
