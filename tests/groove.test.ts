@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
 import type { Groove, Note, Rng } from "../src/music/groove";
-import { BASS_STEPS, chordName, chordPitches, DRUM_STEPS, LOOP_STEPS, mutate, rollGroove, STAB_STEPS, tonePitch, TRACKS } from "../src/music/groove";
+import { BASS_STEPS, chordName, chordPitches, DRUM_STEPS, LOOP_STEPS, mutate, roll, rollGroove, STAB_STEPS, tonePitch, TRACKS } from "../src/music/groove";
 
 /** mulberry32: the same seed gives the same music. */
 function seeded(seed: number): Rng {
@@ -71,6 +71,23 @@ it("stays a playable groove through a long day of small changes", () => {
       assertPlayable(groove);
     }
   }
+});
+
+it("rolls one track and leaves held tracks alone", () => {
+  const rng = seeded(7);
+  const groove = rollGroove(rng);
+  for (const track of TRACKS) {
+    const rolled = roll(groove, track, rng);
+    assertPlayable(rolled);
+    for (const other of TRACKS) if (other !== track) expect(rolled[other]).toBe(groove[other]);
+    expect(rolled[track]).not.toEqual(groove[track]);
+  }
+  // With drums and chords held, only bass and melody breed on.
+  let bred = groove;
+  for (let n = 0; n < 200; n += 1) bred = mutate(bred, rng, ["bass", "melody"]).groove;
+  expect(bred.drums).toEqual(groove.drums);
+  expect(bred.chords).toEqual(groove.chords);
+  expect(bred.bass).not.toEqual(groove.bass);
 });
 
 it("turns chords and tones into the right pitches and names", () => {

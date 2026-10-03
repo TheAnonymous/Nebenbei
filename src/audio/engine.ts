@@ -36,8 +36,8 @@ interface Graph {
 }
 
 export class Engine {
-  /** Called when a new pass through the four bars is about to be scheduled, a moment before it sounds. */
-  onLoop: (() => void) | null = null;
+  /** Called when a bar (0..3 of the loop) is about to be scheduled, a moment before it sounds: the place for changes. */
+  onBar: ((bar: number) => void) | null = null;
   playing = false;
 
   private context: AudioContext | null = null;
@@ -71,14 +71,15 @@ export class Engine {
       this.startTime = this.context.currentTime + 0.1;
     }
     // The audio clock stands still while suspended, so a pause picks up exactly where it stopped.
+    this.playing = !this.playing;
     if (this.playing) {
+      await this.context.resume();
+      // A second call may have paused again in the meantime.
+      if (this.playing) this.clock.start();
+    } else {
       this.clock.stop();
       await this.context.suspend();
-    } else {
-      await this.context.resume();
-      this.clock.start();
     }
-    this.playing = !this.playing;
     return this.playing;
   }
 
@@ -107,9 +108,11 @@ export class Engine {
   }
 
   private step(index: number, time: number, audible: boolean): void {
-    if (index === 0) this.onLoop?.();
     const inBar = index % STEPS_PER_BAR;
-    if (inBar === 0) this.barEnergy = this.energyNow;
+    if (inBar === 0) {
+      this.onBar?.(index / STEPS_PER_BAR);
+      this.barEnergy = this.energyNow;
+    }
     if (!audible) return;
 
     const { drums, bass, chords, melody } = this.groove;

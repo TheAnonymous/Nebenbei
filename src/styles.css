@@ -41,21 +41,54 @@ header p {
   color: var(--dim);
 }
 
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+button {
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--dim);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .play {
-  justify-self: start;
   min-width: 140px;
   padding: 12px 28px;
   border: 0;
-  border-radius: 999px;
   background: var(--ink);
   color: var(--bg);
-  font: inherit;
+  font-size: 16px;
   font-weight: 600;
-  cursor: pointer;
 }
 
 .play:hover {
   background: #fff5e4;
+}
+
+kbd {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12px;
 }
 
 :focus-visible {
@@ -70,9 +103,9 @@ header p {
 
 .track {
   display: grid;
-  grid-template-columns: 84px 1fr;
+  grid-template-columns: 104px 1fr 84px 90px;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .track.drums { --color: var(--drums); }
@@ -109,6 +142,28 @@ header p {
   border-radius: 3px;
   background: var(--color);
   transition: opacity 0.4s;
+}
+
+/* A held track keeps its pattern: a firm frame. */
+.held .lane {
+  box-shadow: 0 0 0 2px var(--color);
+}
+
+.hold[aria-pressed="true"] {
+  border-color: var(--color);
+  color: var(--color);
+}
+
+/* The roll is on its way and lands on the next bar line. */
+button.waiting {
+  border-color: var(--color);
+  animation: waiting 0.25s ease-in-out infinite alternate;
+}
+
+@keyframes waiting {
+  to {
+    opacity: 0.4;
+  }
 }
 
 /* Waits for more energy. */
@@ -169,6 +224,13 @@ input[type="range"] {
 
 .volume input {
   accent-color: var(--dim);
+}
+
+.keys {
+  margin: 0;
+  color: var(--dim);
+  font-size: 13px;
+  line-height: 2;
 }
 
 footer {

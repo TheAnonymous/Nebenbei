@@ -286,11 +286,16 @@ const MUTATORS: Record<TrackId, (groove: Groove, rng: Rng) => boolean> = {
   melody: (groove, rng) => mutateNotes(groove.melody, rng, MELODY),
 };
 
-/** Returns a copy of the groove with one small change on one track, and says which. */
-export function mutate(groove: Groove, rng: Rng): { groove: Groove; track: TrackId } {
+/** Returns a copy of the groove with a fresh pattern on one track. New chords take bass and melody along. */
+export function roll(groove: Groove, track: TrackId, rng: Rng): Groove {
+  return { ...groove, [track]: rollGroove(rng)[track] };
+}
+
+/** Returns a copy of the groove with one small change on one of `tracks` (at least one), and says which. */
+export function mutate(groove: Groove, rng: Rng, tracks: readonly TrackId[] = TRACKS): { groove: Groove; track: TrackId } {
   // An attempt can come up empty (a full bar, a place already taken); the next one succeeds soon enough.
   for (;;) {
-    const track = pick(rng, TRACKS);
+    const track = pick(rng, tracks);
     const next = structuredClone(groove);
     if (MUTATORS[track](next, rng)) return { groove: next, track };
   }
