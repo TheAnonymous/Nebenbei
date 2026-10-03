@@ -32,8 +32,10 @@ export interface Session {
   effects: Effects;
   /** The level of each track, 0..100. */
   levels: Levels;
-  /** Whether the DJ plays the effects. */
+  /** Whether the DJ plays the effects, the tides are on, the sky is calm. */
   dj: boolean;
+  tides: boolean;
+  calmSky: boolean;
 }
 
 const LOGBOOK_KEY = "nebenbei.logbuch";
@@ -66,7 +68,7 @@ export function parseLogbook(json: string | null): Logbook {
 }
 
 export function parseSession(json: string | null): Session | null {
-  const { groove: stored, energy, volume, held, effects, levels, dj } = parse(json);
+  const { groove: stored, energy, volume, held, effects, levels, dj, tides, calmSky } = parse(json);
   const groove = readGroove(stored);
   if (!groove) return null;
   return {
@@ -77,6 +79,8 @@ export function parseSession(json: string | null): Session | null {
     effects: readEffects(effects),
     levels: readLevels(levels),
     dj: dj === true,
+    tides: tides === true,
+    calmSky: calmSky === true,
   };
 }
 

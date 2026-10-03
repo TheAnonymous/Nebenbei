@@ -9,8 +9,10 @@ import type { Pulse } from "./audio/engine";
  * and faster. It stays dark enough to read the page on top of it.
  *
  * The canvas is small and stretched over the window; that softens it and
- * keeps the work light. Everything that reacts to the music follows it with
- * a short glide instead of jumping, so the picture stays calm.
+ * keeps the work light, and it is painted at most 30 times a second (a
+ * laptop on battery all day notices). Everything that reacts to the music
+ * follows it with a short glide instead of jumping, so the picture stays
+ * calm. The calm sky goes further: slower, softer, no flashes on the drums.
  */
 
 export interface Scene {
@@ -19,8 +21,10 @@ export interface Scene {
   energy: number;
   /** 0 (sad) to 1 (happy). */
   mood: number;
-  /** What has sounded since the last frame. */
-  pulses: Pulse[];
+  /** The calm sky, for focused work. */
+  calm: boolean;
+  /** Hands out what has sounded since the last painted frame; called only for frames that are painted, so nothing is lost. */
+  pulses: () => Pulse[];
 }
 
 /** How strongly each track sounds right now (0..1; melody, chords, bass, drums) and the kick on its own. */
@@ -35,6 +39,8 @@ const MOOD_HUES = [225, 262, 320, 378, 398];
 const STRIPS = 120;
 /** Top to bottom: melody, chords, bass, drums. */
 export const ROWS = { melody: 0, chords: 1, bass: 2, drums: 3 } as const;
+/** At most this many pictures a second: while playing, with the calm sky, while paused. */
+const FRAME_RATES = { playing: 30, calm: 20, paused: 10 } as const;
 /** Seconds a band takes to follow its track up, and to fade again. */
 const ATTACK = 0.07;
 const RELEASE = 0.45;
@@ -80,8 +86,13 @@ export function startVisual(canvas: HTMLCanvasElement, scene: () => Scene, feedb
   resize();
   window.addEventListener("resize", resize);
 
-  const take = (pulse: Pulse): void => {
+  const take = (pulse: Pulse, calm: boolean): void => {
     const row = ROWS[pulse.track];
+    if (calm) {
+      // The calm sky only breathes with the tracks, gently; no lights, sparks or flashes.
+      if (!pulse.bar) asked[row] = Math.max(asked[row]!, 0.35 * pulse.vel);
+      return;
+    }
     if (pulse.bar) {
       // Every bar's chord shifts the colour a little.
       tintGoal = (Math.random() - 0.5) * 36;
@@ -187,21 +198,20 @@ export function startVisual(canvas: HTMLCanvasElement, scene: () => Scene, feedb
   };
 
   let handle = 0;
-  let frame = 0;
   let last = performance.now();
   const loop = (now: number): void => {
     handle = requestAnimationFrame(loop);
-    const { playing, energy: energyGoal, mood: moodGoal, pulses } = scene();
-    frame += 1;
-    // Paused, the sky only drifts slowly: every other frame is smooth enough.
-    if ((!playing || still) && frame % 2) return;
+    const { playing, energy: energyGoal, mood: moodGoal, calm, pulses } = scene();
+    const rate = !playing || still ? FRAME_RATES.paused : calm ? FRAME_RATES.calm : FRAME_RATES.playing;
+    // A frame of the screen comes every 7 to 17 ms; paint on the one closest to the rate.
+    if (now - last < 1000 / rate - 4) return;
     // The first frame's time can lie a moment before the start: never let time run backwards.
-    const seconds = Math.max(0, Math.min(0.1, (now - last) / 1000));
+    const seconds = Math.max(0, Math.min(0.2, (now - last) / 1000));
     last = now;
 
     if (!still) {
-      pulses.forEach(take);
-      clock += seconds * (playing ? 0.25 + 0.7 * energy + 0.25 * mood : 0.12);
+      for (const pulse of pulses()) take(pulse, calm);
+      clock += seconds * (playing ? (0.25 + 0.7 * energy + 0.25 * mood) * (calm ? 0.35 : 1) : 0.12);
     }
     const glide = (shown: number, goal: number, time: number): number => shown + (goal - shown) * (1 - Math.exp(-seconds / time));
     for (let row = 0; row < 4; row += 1) {

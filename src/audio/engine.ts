@@ -1,5 +1,7 @@
 import type { DrumVoice, Feel, Groove, TrackId } from "../music/groove";
-import { BASS_STEPS, chordPitches, DRUM_STEPS, feelOf, LOOP_STEPS, plays, STAB_STEPS, STEPS_PER_BAR, tonePitch } from "../music/groove";
+import { BASS_STEPS, chordPitches, DRUM_STEPS, feelOf, LOOP_STEPS, plays, STAB_STEPS, STEPS_PER_BAR, tonePitch, turnaround } from "../music/groove";
+import type { Phase, Tide } from "../music/tide";
+import { nextBar, startTide, tideOffset } from "../music/tide";
 import { Clock } from "./clock";
 import type { Effects, Levels, Move } from "./effects";
 import { DEFAULT_EFFECTS, DEFAULT_LEVELS, djEffects, levelGain, limitCurve, pickMove } from "./effects";
@@ -18,7 +20,10 @@ import { playThroughSilentSwitch } from "./ios-audio";
  * glides there. The effects are set anew on every sixteenth, so the DJ can
  * play them from here, in time, even while the tab is in the background.
  * Every track has its own level, which also sets how much of it goes into
- * the room and the echo. The end of the chain cannot clip (softLimit).
+ * the room and the echo. The end of the chain cannot clip (softLimit). With
+ * the tides on (music/tide.ts) the energy takes a long arc, kick and clap
+ * pause now and then, fills end some passes, and every second pass answers
+ * the progression, so the chords run over eight bars.
  */
 
 const LOOKAHEAD_SECONDS = 0.2;
@@ -35,6 +40,21 @@ export interface Pulse {
   pitch?: number;
   bar?: boolean;
 }
+
+/** The fills that end a pass: hits on the last bar's sixteenths, over whatever the drums play. */
+const FILLS: readonly (readonly { step: number; voice: DrumVoice; vel: number }[])[] = [
+  [{ step: 12, voice: "rim", vel: 0.5 }, { step: 14, voice: "rim", vel: 0.6 }, { step: 15, voice: "clap", vel: 0.7 }],
+  [{ step: 12, voice: "open", vel: 0.45 }, { step: 14, voice: "hat", vel: 0.5 }, { step: 15, voice: "hat", vel: 0.6 }],
+  [
+    { step: 8, voice: "rim", vel: 0.4 },
+    { step: 10, voice: "rim", vel: 0.45 },
+    { step: 12, voice: "rim", vel: 0.5 },
+    { step: 13, voice: "rim", vel: 0.55 },
+    { step: 14, voice: "clap", vel: 0.6 },
+    { step: 15, voice: "clap", vel: 0.7 },
+  ],
+  [{ step: 11, voice: "kick", vel: 0.6 }, { step: 14, voice: "kick", vel: 0.7 }, { step: 15, voice: "open", vel: 0.5 }],
+];
 
 /** How loud an instrument is on each track, against one melody note: a bass note, a chord of four. */
 const ROLE_LEVEL = { bass: 1.6, chords: 0.4, melody: 1 } as const;
@@ -72,11 +92,17 @@ interface Graph {
 }
 
 export class Engine {
-  /** Called when a bar (0..3 of the loop) is about to be scheduled, a moment before it sounds: the place for changes. */
-  onBar: ((bar: number) => void) | null = null;
+  /**
+   * Called when a bar (0..3 of the loop) is about to be scheduled, a moment
+   * before it sounds: the place for changes. `modulate` is set when the tides
+   * move the key on, by that many semitones.
+   */
+  onBar: ((bar: number, modulate: number | null) => void) | null = null;
   playing = false;
   /** Whether the DJ plays the effects. It starts its first move on the next pass through the four bars. */
   dj = false;
+  /** Whether the tides are on. They start on the next bar line, at your energy. */
+  tides = false;
 
   private context: AudioContext | null = null;
   private graph: Graph | null = null;
@@ -84,7 +110,11 @@ export class Engine {
   private nextStep = 0;
   /** When the next sixteenth sounds, and the last few that were scheduled, to tell where the music is. */
   private nextTime = 0;
-  private scheduled: { index: number; time: number; effects: Effects; move: Move }[] = [];
+  private scheduled: { index: number; time: number; effects: Effects; move: Move; energy: number; phase: Phase | null; breakdown: boolean; answer: boolean }[] = [];
+  private tide: Tide | null = null;
+  private fill: (typeof FILLS)[number] | null = null;
+  /** Passes through the four bars so far; with the tides, every second one answers the progression. */
+  private passes = 0;
   private feel: Feel;
   private tempo: number;
   /** Seconds per sixteenth at the tempo of the moment. */
@@ -159,9 +189,14 @@ export class Engine {
     return heard ? heard.index + Math.min(0.999, (this.heardTime() - heard.time) / this.stepSeconds) : -1;
   }
 
-  /** The effects that sound right now, and the DJ's move. */
-  heardMix(): { effects: Effects; move: Move } | null {
+  /** What sounds right now: the effects and the DJ's move, the energy and the tides' phase, a pause of the drums, the answering pass. */
+  heardMix(): { effects: Effects; move: Move; energy: number; phase: Phase | null; breakdown: boolean; answer: boolean } | null {
     return this.heard() ?? null;
+  }
+
+  /** The energy (0..1) of the bar being scheduled: yours, or where the tides have taken it. */
+  get liveEnergy(): number {
+    return this.barEnergy;
   }
 
   /** Hands out everything that has sounded since the last call, for the picture. */
@@ -203,8 +238,20 @@ export class Engine {
   private step(index: number, time: number, audible: boolean): void {
     const inBar = index % STEPS_PER_BAR;
     if (inBar === 0) {
-      this.onBar?.(index / STEPS_PER_BAR);
-      this.barEnergy = this.energyNow;
+      const bar = index / STEPS_PER_BAR;
+      if (bar === 0) this.passes += 1;
+      let modulate: number | null = null;
+      if (this.tides) {
+        const result = nextBar(this.tide ?? startTide(Math.random), bar, Math.random);
+        this.tide = result.tide;
+        this.fill = result.fill ? FILLS[Math.floor(Math.random() * FILLS.length)]! : null;
+        modulate = result.modulate;
+      } else {
+        this.tide = null;
+        this.fill = null;
+      }
+      this.barEnergy = Math.min(1, Math.max(0, this.energyNow + (this.tide ? tideOffset(this.tide) / 10 : 0)));
+      this.onBar?.(bar, modulate);
       this.feel = feelOf(this.groove.chords.mode);
       this.applyFeel(time);
     }
@@ -214,12 +261,14 @@ export class Engine {
     this.stepSeconds = 15 / this.tempo;
     this.live = this.dj ? djEffects(this.effectsNow, this.move, index / LOOP_STEPS) : this.effectsNow;
     this.mix(this.live, time);
-    this.scheduled = [...this.scheduled.slice(-15), { index, time, effects: this.live, move: this.dj ? this.move : "ruhe" }];
+    const breakdown = (this.tide?.breakdown ?? 0) > 0;
+    const answer = this.tides && this.passes % 2 === 0;
+    this.scheduled = [...this.scheduled.slice(-15), { index, time, effects: this.live, move: this.dj ? this.move : "ruhe", energy: this.barEnergy, phase: this.tide?.phase ?? null, breakdown, answer }];
     if (!audible) return;
 
     const { drums, bass, chords, melody } = this.groove;
     const energy = this.barEnergy;
-    const chord = chords.bars[Math.floor(index / STEPS_PER_BAR)]!;
+    const chord = (answer ? turnaround(chords.bars) : chords.bars)[Math.floor(index / STEPS_PER_BAR)]!;
     const at = time + (index % 2 ? this.feel.swing * this.stepSeconds : 0);
     const due = (item: { step: number; min: number }, track: TrackId, length: number): boolean => item.step === index % length && plays(item, track, energy, chords.mode);
 
@@ -229,6 +278,13 @@ export class Engine {
     }
     for (const hit of drums) {
       if (!due(hit, "drums", DRUM_STEPS)) continue;
+      // A breakdown: kick and clap pause, the rest plays on.
+      if (breakdown && (hit.voice === "kick" || hit.voice === "clap")) continue;
+      this.drum(hit.voice, hit.vel, at);
+      this.pulse({ time: at, track: "drums", vel: hit.vel, voice: hit.voice });
+    }
+    for (const hit of this.fill ?? []) {
+      if (hit.step !== inBar) continue;
       this.drum(hit.voice, hit.vel, at);
       this.pulse({ time: at, track: "drums", vel: hit.vel, voice: hit.voice });
     }

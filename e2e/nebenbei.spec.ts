@@ -241,3 +241,60 @@ test("starts fresh when the browser's storage is broken", async ({ page }) => {
   await expect.poll(() => loudest(page)).toBeGreaterThan(0.05);
   expect(errors).toEqual([]);
 });
+
+test("tides: an eight-bar progression, the energy's arc on the slider, and a calm sky", async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors = watchErrors(page);
+  await page.goto("./");
+  // Held chords do not breed, so any change of their names comes from the answering pass.
+  await page.keyboard.press("Shift+3");
+  const chords = page.locator(".track.chords .lane");
+  const stored = (await chords.textContent())!;
+  await page.keyboard.press("g");
+  await expect(page.getByRole("button", { name: /^Gezeiten/ })).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("h");
+  await expect(page.getByRole("button", { name: /^Ruhiger Himmel/ })).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Space");
+  await expect(play(page)).toHaveText("Pause");
+
+  // The tides name their phase, and their dot on the energy shows where they have taken it.
+  await expect(page.locator(".energy .move")).toHaveText(/Aufbau|Plateau|Abbau|Tal|Pause der Drums/);
+  await expect(page.locator(".energy.tides .dj-dot")).toBeVisible();
+  // Every second pass answers the first: the chords run over eight bars, then come back.
+  await expect(chords).not.toHaveText(stored, { timeout: 25_000 });
+  await expect(chords).toHaveText(stored, { timeout: 15_000 });
+  // The calm sky still moves.
+  const sky = (): Promise<string> => page.locator(".sky").evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
+  const picture = await sky();
+  await expect.poll(sky).not.toBe(picture);
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^Gezeiten/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /^Ruhiger Himmel/ })).toHaveAttribute("aria-pressed", "true");
+  expect(errors).toEqual([]);
+});
+
+test("installs as an app: manifest and icons load, and after one visit it starts offline", async ({ page, context }) => {
+  const errors = watchErrors(page);
+  await page.goto("./");
+  const manifestUrl = await page.locator('link[rel="manifest"]').getAttribute("href");
+  const manifest = (await (await page.request.get(manifestUrl!)).json()) as { start_url: string; scope: string; display: string; icons: { src: string; sizes: string; purpose: string }[] };
+  expect(manifest).toMatchObject({ start_url: "/Nebenbei/", scope: "/Nebenbei/", display: "standalone" });
+  expect(manifest.icons.map((icon) => `${icon.sizes} ${icon.purpose}`)).toEqual(["192x192 any", "512x512 any", "512x512 maskable"]);
+  for (const icon of manifest.icons) {
+    const response = await page.request.get(new URL(icon.src, new URL(manifestUrl!, page.url())).href);
+    expect(response.headers()["content-type"]).toBe("image/png");
+  }
+  await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 10_000 });
+  await page.keyboard.press("m");
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator(".track"), "offline aus dem Speicher des Laptops").toHaveCount(4);
+  await expect(entries(page, "Gemerkt")).toHaveCount(1);
+  await page.keyboard.press("Space");
+  await expect(play(page)).toHaveText("Pause");
+  await page.keyboard.press("Space");
+  await context.setOffline(false);
+  expect(errors).toEqual([]);
+});

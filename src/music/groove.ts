@@ -358,6 +358,16 @@ function rollChords(rng: Rng): Groove["chords"] {
   };
 }
 
+/**
+ * The answer to a four-bar progression, so that two passes make eight bars:
+ * it starts the same, moves its third chord a third down (three of four
+ * notes stay) and turns its last one towards the fifth, which leads home.
+ */
+export function turnaround(bars: readonly Chord[]): Chord[] {
+  const [first, second, third, fourth] = bars as [Chord, Chord, Chord, Chord];
+  return [first, second, { ...third, degree: (third.degree + 5) % 7 }, { ...fourth, degree: fourth.degree === 4 ? 6 : 4 }];
+}
+
 // ---- The whole groove ------------------------------------------------------
 
 export function rollGroove(rng: Rng): Groove {

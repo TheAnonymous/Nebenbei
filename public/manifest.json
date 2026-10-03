@@ -1,0 +1,17 @@
+{
+  "name": "Nebenbei · Lo-Fi-House zum Arbeiten",
+  "short_name": "Nebenbei",
+  "description": "Lo-Fi-House, der beim Arbeiten von allein läuft und sich langsam verändert.",
+  "lang": "de",
+  "id": "/Nebenbei/",
+  "start_url": "/Nebenbei/",
+  "scope": "/Nebenbei/",
+  "display": "standalone",
+  "background_color": "#1d1814",
+  "theme_color": "#1d1814",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

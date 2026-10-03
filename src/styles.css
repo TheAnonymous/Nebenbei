@@ -384,11 +384,18 @@ button.waiting {
   color: var(--dim);
 }
 
-.dj-switch {
+.dj-switch,
+.switch {
   padding: 2px 10px;
   font-size: 13px;
 }
 
+.actions .switch {
+  padding: 7px 14px;
+  font-size: 14px;
+}
+
+.switch[aria-pressed="true"],
 .dj-switch[aria-pressed="true"] {
   border-color: var(--chords);
   background: rgb(143 179 154 / 0.2);
@@ -437,8 +444,26 @@ button.waiting {
   transition: opacity 0.3s;
 }
 
-.effects.dj .dj-dot {
+.effects.dj .dj-dot,
+.energy.tides .dj-dot {
   opacity: 1;
+}
+
+/* The energy's head: its name, your value, the tides' switch and phase. */
+.energy .head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.energy .head output {
+  margin-left: 0;
+}
+
+.update {
+  margin: 0;
+  color: var(--ink);
 }
 
 .effects input {

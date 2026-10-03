@@ -9,7 +9,7 @@ Requests.
 ## Stand
 
 Alle vier Bauschritte (Klang und Selbstlauf, Festhalten und Würfeln, Logbuch,
-Feinschliff), dazu Instrumente, Stimmung, Effekte und der Himmel. Die App
+Feinschliff), dazu Instrumente, Stimmung, Effekte, DJ, Gezeiten und der Himmel. Die App
 läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
 
 - Start/Pause. Die Musik läuft weiter, wenn der Tab im Hintergrund ist.
@@ -66,12 +66,27 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
   Melodietöne steigen als Lichter auf, Hi-Hats funkeln. Die Stimmung färbt ihn
   (blaue Nacht bis goldener Abend) und dreht die Lichter um: traurig sinken
   sie wie Regen, fröhlich steigen sie. Die Energie macht ihn heller und
-  schneller.
+  schneller. Er wird höchstens 30-mal pro Sekunde gemalt, pausiert 10-mal.
+- **Ruhiger Himmel** (`H`): zum Konzentrieren langsamer und sanfter, ohne
+  Lichter, Funken und Blitze auf den Drums, 20 Bilder pro Sekunde.
 - **Die Seite bewegt sich mit:** Die Abspiellinie gleitet, Noten leuchten auf,
   wenn sie klingen, hinter jeder Spur glüht es im Takt ihrer Spur, der
   Start-Knopf pulst mit der Kick. Neue Noten springen ins Bild, alte zerplatzen,
   Logbuch-Einträge gleiten herein. Wer im System weniger Bewegung eingestellt
   hat, bekommt eine Seite, die stillsteht.
+- **Gezeiten** (`G`): Die Musik nimmt von selbst einen langen Bogen über die
+  Arbeitsstunde, um deine Energie herum: Aufbau, Plateau (zwei Stufen über
+  deiner Einstellung), Abbau, Tal (drei darunter); ein Durchgang dauert 22 bis
+  39 Minuten. Eingeschaltet beginnt sie genau bei deiner Energie, auf dem Weg
+  nach oben. Auf dem Plateau pausieren Kick und Clap ab und zu acht Takte lang
+  (höchstens alle fünf Minuten) und kommen mit einem Fill zurück; auch sonst
+  endet etwa jeder dritte Durchlauf mit einem kleinen Fill. Jeder zweite
+  Durchlauf beantwortet die Akkordfolge (gleicher Anfang, der dritte Akkord
+  eine Terz tiefer, der vierte zur Quinte), so laufen die Akkorde über acht
+  Takte. Etwa alle halbe Stunde wechselt die Tonart (Quarte, Quinte, Ganzton
+  oder kleine Terz); gehaltene Akkorde bleiben, wo sie sind. Ein Punkt auf dem
+  Energie-Regler zeigt, wo die Gezeiten gerade sind. Sie laufen im Taktgeber
+  mit, also auch bei Tab im Hintergrund.
 - **Festhalten:** Eine gehaltene Spur bleibt, wie sie ist: keine Mutation, kein
   Würfeln, kein Zurück.
 - **Würfeln:** Die Spur bekommt ein neues Muster. Läuft die Musik, setzt es am
@@ -86,7 +101,11 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
 - **Heute.** Der Tagesstreifen zeigt den Arbeitstag in Fünf-Minuten-Balken: so
   hoch wie die Energie, mit heller Kappe, wo gewürfelt oder zurückgeholt wurde,
   und rosa, wo ein Groove gemerkt wurde. Er beginnt jeden Tag neu.
-- Der laufende Groove, Energie, Lautstärke, Spurlautstärken, Effekte, DJ, gehaltene Spuren, das Logbuch und
+- **Als App:** Chrome und Edge bieten an, Nebenbei als App zu installieren
+  (Knopf „Als App installieren“ oder im Adressfeld); sie startet dann in einem
+  eigenen Fenster und auch offline. Eine neue Version meldet sich unten auf der
+  Seite mit „Neu laden“.
+- Der laufende Groove, Energie, Lautstärke, Spurlautstärken, Effekte, DJ, Gezeiten, Himmel, gehaltene Spuren, das Logbuch und
   der Tagesstreifen liegen im Speicher des Browsers (`localStorage`) und
   überstehen das Neuladen. Was von dort zurückkommt, wird vor dem Abspielen
   geprüft.
@@ -98,6 +117,8 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
 | `Shift` + `1`–`4` | Spur festhalten / loslassen |
 | `Q` `W` `E` `R` | nächstes passendes Instrument der Spur |
 | `D` | DJ an / aus |
+| `G` | Gezeiten an / aus |
+| `H` | ruhiger Himmel an / aus |
 | `0` | alles würfeln, was nicht gehalten ist |
 | `Z` | zurück |
 | `M` | Groove merken |
@@ -123,6 +144,8 @@ mise exec -- npm run verify   # Lint, Typprüfung, Tests, Build, Playwright
   Funktionen, getestet in `tests/groove.test.ts`).
 - `src/audio/engine.ts`: Taktgeber, Instrumente und Effekte (Web Audio).
 - `src/visual.ts`: der Himmel (Canvas).
+- `src/music/tide.ts`: die Gezeiten (getestet in `tests/tide.test.ts`).
+- `src/pwa.ts`, `sw-template.js`: Installation und Offline-Start.
 - `src/day.ts`: der Tagesstreifen (getestet in `tests/day.test.ts`).
 - `src/logbook.ts`: was der Browser behält, und die Prüfung beim Zurücklesen
   (getestet in `tests/logbook.test.ts`).

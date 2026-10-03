@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
 import type { Groove, Note, Rng } from "../src/music/groove";
-import { BASS_STEPS, chordName, chordPitches, DRUM_STEPS, feelOf, keyName, instrumentsFor, LOOP_STEPS, MODES, mutate, nextInstrument, plays, roll, rollGroove, STAB_STEPS, tonePitch, TRACKS } from "../src/music/groove";
+import { BASS_STEPS, chordName, chordPitches, DRUM_STEPS, feelOf, keyName, instrumentsFor, LOOP_STEPS, MODES, mutate, nextInstrument, plays, roll, rollGroove, STAB_STEPS, tonePitch, TRACKS, turnaround } from "../src/music/groove";
 
 /** mulberry32: the same seed gives the same music. */
 function seeded(seed: number): Rng {
@@ -96,6 +96,26 @@ it("rolls one track and leaves held tracks alone", () => {
   expect(bred.drums).toEqual(groove.drums);
   expect(bred.chords).toEqual(groove.chords);
   expect(bred.bass).not.toEqual(groove.bass);
+});
+
+it("answers four bars with four more that turn home", () => {
+  const aMinor = { key: 9, mode: 0 };
+  const bars = [0, 5, 2, 6].map((degree) => ({ degree, inversion: 1, ninth: false }));
+  const answer = turnaround(bars);
+  // Am7 Fmaj7 Cmaj7 G7, answered by Am7 Fmaj7 Am7 Em7: same start, the third chord a third down, the last on the fifth.
+  expect(answer.map((chord) => chordName(aMinor, chord))).toEqual(["Am7", "Fmaj7", "Am7", "Em7"]);
+  expect(answer.map((chord) => chord.inversion)).toEqual([1, 1, 1, 1]);
+  // A progression that already ends on the fifth turns to the seventh degree instead.
+  expect(turnaround([0, 3, 5, 4].map((degree) => ({ degree, inversion: 0, ninth: false })))[3]!.degree).toBe(6);
+  // Every answer stays playable in every mood.
+  const rng = seeded(3);
+  for (let n = 0; n < 200; n += 1) {
+    const groove = rollGroove(rng);
+    for (let mode = 0; mode < MODES.length; mode += 1) {
+      const chords = { ...groove.chords, mode, bars: turnaround(groove.chords.bars) };
+      assertPlayable({ ...groove, chords });
+    }
+  }
 });
 
 it("offers many instruments, and steps through those that suit a track", () => {
