@@ -89,6 +89,38 @@ export const MODES = [
   { name: "Lydisch", scale: [0, 2, 4, 6, 7, 9, 11] },
 ] as const;
 
+/**
+ * What a mood changes besides its scale. From sad to happy the music gets
+ * faster and more swung, brighter and drier, busier in drums and melody,
+ * and melody and chords move up.
+ */
+export interface Feel {
+  /** Beats per minute. */
+  tempo: number;
+  /** How far the odd sixteenths lean back, in sixteenths. */
+  swing: number;
+  /** A factor on the filters: below 1 duller, above 1 brighter. */
+  brightness: number;
+  /** A factor on hall, echo and the chord bed: above 1 wider. */
+  space: number;
+  /** A factor on the drums' level. */
+  punch: number;
+  /** A factor on the energy that drums and melody notes wait for: above 1 fewer of them play. */
+  wait: number;
+  /** The octave of the melody: the lowest MIDI pitch a chord root can take there. */
+  melodyLow: number;
+}
+
+export function feelOf(mode: number): Feel {
+  const happy = mode / (MODES.length - 1);
+  return { tempo: 104 + 22 * happy, swing: 0.08 + 0.12 * happy, brightness: 0.7 + 0.6 * happy, space: 1.5 - 0.8 * happy, punch: 0.85 + 0.2 * happy, wait: 1.25 - 0.5 * happy, melodyLow: [55, 58, 60, 63, 65][mode]! };
+}
+
+/** Whether a hit, note or stab of a track plays at this energy (0..1) in this mood. */
+export function plays(item: { min: number }, track: TrackId, energy: number, mode: number): boolean {
+  return item.min * (track === "drums" || track === "melody" ? feelOf(mode).wait : 1) <= energy + 1e-9;
+}
+
 /** Semitones above the key note for a step of the mode's scale (7 is the octave). */
 const scaleStep = (mode: number, step: number): number => 12 * Math.floor(step / 7) + MODES[mode]!.scale[((step % 7) + 7) % 7]!;
 
@@ -111,10 +143,10 @@ function hasNinth(mode: number, chord: Chord): boolean {
 /**
  * The MIDI pitches of a chord, all folded into one octave so that changes
  * move the voices as little as possible. With a ninth the root is left to
- * the bass.
+ * the bass. Happier moods voice it a little higher.
  */
 export function chordPitches({ key, mode }: Harmony, chord: Chord): number[] {
-  const low = 52 + [0, 3, 5][chord.inversion]!;
+  const low = 50 + mode + [0, 3, 5][chord.inversion]!;
   const root = rootStep(mode, chord);
   return (hasNinth(mode, chord) ? [2, 4, 6, 8] : [0, 2, 4, 6]).map((third) => fold(key + scaleStep(mode, root + third), low)).sort((a, b) => a - b);
 }

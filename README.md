@@ -18,14 +18,18 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
   Clap auf zwei und vier bleiben immer stehen.
 - **Energie** (0–10): von fast Ambient (nur Akkordfläche und Staub) bis voller
   Groove. Instrumente kommen und gehen auf dem Taktstrich; blasse Marken
-  warten auf mehr Energie. Das Tempo bleibt bei 118 BPM.
+  warten auf mehr Energie. Die Energie ändert das Tempo nicht.
 - Bass und Melodie sind relativ zum Akkord ihres Takts notiert und folgen
   jeder Änderung der Akkorde.
 - **Stimmung** (traurig bis fröhlich): fünf Tonleitern von Moll über Dorisch,
   Mixolydisch und Dur bis Lydisch. Jede Stufe hebt genau einen Ton der
   Tonleiter, die Akkorde, der Bass und die Melodie gehen mit; gewechselt wird
   auf dem Taktstrich. Den verminderten Akkord jeder Tonleiter ersetzt der
-  Akkord eine Terz tiefer.
+  Akkord eine Terz tiefer. Mit der Tonleiter ändert sich das ganze Gefühl:
+  traurig ist langsam (104 BPM), gerade, dumpf und weit, mit viel Hall, langem
+  Echo, wenigen Drums und einer tiefen, sparsamen Melodie; fröhlich ist schnell
+  (126 BPM), geswingt, hell und trocken, mit dichteren Drums und einer hohen,
+  geschwätzigen Melodie. Das Tempo gleitet in etwa einem Takt hinüber.
 - **Instrumente:** Jede Spur hat drei zur Wahl (Drums: Staubig, Knackig, Weich;
   Bass: Sub, Rund, Zupf; Akkorde: Säge, E-Piano, Orgel; Melodie: Glocke, Flöte,
   Zupf). Ein Klick auf den Namen unter der Spur nimmt das nächste. Stimmung und
@@ -37,8 +41,14 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
 - **Der Himmel** hinter der Seite folgt der Musik: vier Lichtbänder, eines pro
   Spur, die mit ihrer Spur aufleuchten; die Kick schickt ein Glühen von unten,
   Melodietöne steigen als Lichter auf, Hi-Hats funkeln. Die Stimmung färbt ihn
-  (blaue Nacht bis goldener Abend), die Energie macht ihn heller und schneller.
-  Wer im System weniger Bewegung eingestellt hat, sieht ihn stehen.
+  (blaue Nacht bis goldener Abend) und dreht die Lichter um: traurig sinken
+  sie wie Regen, fröhlich steigen sie. Die Energie macht ihn heller und
+  schneller.
+- **Die Seite bewegt sich mit:** Die Abspiellinie gleitet, Noten leuchten auf,
+  wenn sie klingen, hinter jeder Spur glüht es im Takt ihrer Spur, der
+  Start-Knopf pulst mit der Kick. Neue Noten springen ins Bild, alte zerplatzen,
+  Logbuch-Einträge gleiten herein. Wer im System weniger Bewegung eingestellt
+  hat, bekommt eine Seite, die stillsteht.
 - **Festhalten:** Eine gehaltene Spur bleibt, wie sie ist: keine Mutation, kein
   Würfeln, kein Zurück.
 - **Würfeln:** Die Spur bekommt ein neues Muster. Läuft die Musik, setzt es am

@@ -1,5 +1,5 @@
-import type { DrumVoice, Groove, TrackId } from "../music/groove";
-import { BASS_STEPS, chordPitches, DRUM_STEPS, LOOP_STEPS, STAB_STEPS, STEPS_PER_BAR, tonePitch } from "../music/groove";
+import type { DrumVoice, Feel, Groove, TrackId } from "../music/groove";
+import { BASS_STEPS, chordPitches, DRUM_STEPS, feelOf, LOOP_STEPS, plays, STAB_STEPS, STEPS_PER_BAR, tonePitch } from "../music/groove";
 import { Clock } from "./clock";
 import type { Effects } from "./effects";
 import { DEFAULT_EFFECTS } from "./effects";
@@ -11,17 +11,12 @@ import { playThroughSilentSwitch } from "./ios-audio";
  * while the tab is in the background. Everything is synthesised; every track
  * has three instruments to choose from. The whole mix runs through a tape (a
  * wobbling delay, saturation, a dull lowpass that the energy opens) and a
- * filter for the hand.
+ * filter for the hand. The mood sets the feel: tempo, swing, brightness,
+ * space; it changes on the bar line, and the tempo glides there.
  */
 
-const TEMPO = 118;
-/** Seconds per sixteenth. */
-const STEP = 15 / TEMPO;
-/** How far the odd sixteenths lean back, in sixteenths. */
-const SWING = 0.14;
 const LOOKAHEAD_SECONDS = 0.2;
 const BASS_LOW = 33;
-const MELODY_LOW = 60;
 
 const hz = (pitch: number): number => 440 * 2 ** ((pitch - 69) / 12);
 
@@ -56,6 +51,8 @@ interface Graph {
   flutter: GainNode;
   dust: GainNode;
   drive: GainNode;
+  /** The echo's length: three sixteenths, so it follows the tempo. */
+  echoTime: AudioParam;
   tone: BiquadFilterNode;
   /** The filter for the hand: a lowpass and a highpass in a row. */
   dull: BiquadFilterNode;
@@ -72,8 +69,14 @@ export class Engine {
   private context: AudioContext | null = null;
   private graph: Graph | null = null;
   private readonly clock = new Clock(() => this.schedule());
-  private startTime = 0;
   private nextStep = 0;
+  /** When the next sixteenth sounds, and the last few that were scheduled, to tell where the music is. */
+  private nextTime = 0;
+  private scheduled: { index: number; time: number }[] = [];
+  private feel: Feel;
+  private tempo: number;
+  /** Seconds per sixteenth at the tempo of the moment. */
+  private stepSeconds: number;
   private energyNow = 0.5;
   /** The energy the running bar was started with: instruments come and go on the bar line. */
   private barEnergy = 0.5;
@@ -81,11 +84,15 @@ export class Engine {
   private effectsNow: Effects = { ...DEFAULT_EFFECTS };
   private pulses: Pulse[] = [];
 
-  constructor(public groove: Groove) {}
+  constructor(public groove: Groove) {
+    this.feel = feelOf(groove.chords.mode);
+    this.tempo = this.feel.tempo;
+    this.stepSeconds = 15 / this.tempo;
+  }
 
   set energy(value: number) {
     this.energyNow = value;
-    if (this.context && this.graph) this.graph.tone.frequency.setTargetAtTime(toneCutoff(value), this.context.currentTime, 0.4);
+    if (this.context && this.graph) this.graph.tone.frequency.setTargetAtTime(toneCutoff(value) * this.feel.brightness, this.context.currentTime, 0.4);
   }
 
   set volume(value: number) {
@@ -105,7 +112,7 @@ export class Engine {
       this.context = new AudioContext({ latencyHint: "playback" });
       this.graph = this.build(this.context);
       this.applyEffects(0);
-      this.startTime = this.context.currentTime + 0.1;
+      this.nextTime = this.context.currentTime + 0.1;
     }
     // The audio clock stands still while suspended, so a pause picks up exactly where it stopped.
     this.playing = !this.playing;
@@ -120,11 +127,14 @@ export class Engine {
     return this.playing;
   }
 
-  /** The sixteenth of the loop that sounds right now, or -1 before the first start. */
+  /** Where in the loop the music is right now, in sixteenths with a fraction (0 up to 64), or -1 before the first start. */
   position(): number {
-    if (!this.context) return -1;
-    const step = Math.floor((this.heardTime() - this.startTime) / STEP);
-    return ((step % LOOP_STEPS) + LOOP_STEPS) % LOOP_STEPS;
+    const now = this.heardTime();
+    for (let at = this.scheduled.length - 1; at >= 0; at -= 1) {
+      const { index, time } = this.scheduled[at]!;
+      if (time <= now) return index + Math.min(0.999, (now - time) / this.stepSeconds);
+    }
+    return -1;
   }
 
   /** Hands out everything that has sounded since the last call, for the picture. */
@@ -148,12 +158,11 @@ export class Engine {
   private schedule(): void {
     const context = this.context;
     if (!context) return;
-    for (;;) {
-      const time = this.startTime + this.nextStep * STEP;
-      if (time > context.currentTime + LOOKAHEAD_SECONDS) return;
+    while (this.nextTime <= context.currentTime + LOOKAHEAD_SECONDS) {
       // After a long stall (the laptop slept) the missed steps are counted but not played.
-      this.step(this.nextStep % LOOP_STEPS, time, time >= context.currentTime);
+      this.step(this.nextStep % LOOP_STEPS, this.nextTime, this.nextTime >= context.currentTime);
       this.nextStep += 1;
+      this.nextTime += this.stepSeconds;
     }
   }
 
@@ -162,38 +171,44 @@ export class Engine {
     if (inBar === 0) {
       this.onBar?.(index / STEPS_PER_BAR);
       this.barEnergy = this.energyNow;
+      this.feel = feelOf(this.groove.chords.mode);
+      this.applyFeel(time);
     }
+    // The tempo glides to the mood's within about a bar.
+    this.tempo += (this.feel.tempo - this.tempo) * 0.15;
+    this.stepSeconds = 15 / this.tempo;
+    this.scheduled = [...this.scheduled.slice(-15), { index, time }];
     if (!audible) return;
 
     const { drums, bass, chords, melody } = this.groove;
     const energy = this.barEnergy;
     const chord = chords.bars[Math.floor(index / STEPS_PER_BAR)]!;
-    const at = time + (index % 2 ? SWING * STEP : 0);
-    const plays = (item: { step: number; min: number }, length: number): boolean => item.step === index % length && item.min <= energy + 1e-9;
+    const at = time + (index % 2 ? this.feel.swing * this.stepSeconds : 0);
+    const due = (item: { step: number; min: number }, track: TrackId, length: number): boolean => item.step === index % length && plays(item, track, energy, chords.mode);
 
     if (inBar === 0) {
       this.pad(chordPitches(chords, chord), time, energy);
       this.pulse({ time, track: "chords", vel: 0.3, bar: true });
     }
     for (const hit of drums) {
-      if (!plays(hit, DRUM_STEPS)) continue;
+      if (!due(hit, "drums", DRUM_STEPS)) continue;
       this.drum(hit.voice, hit.vel, at);
       this.pulse({ time: at, track: "drums", vel: hit.vel, voice: hit.voice });
     }
     for (const note of bass) {
-      if (!plays(note, BASS_STEPS)) continue;
+      if (!due(note, "bass", BASS_STEPS)) continue;
       const pitch = tonePitch(chords, chord, note.tone, BASS_LOW);
       this.bass(pitch, note.len, note.vel, at);
       this.pulse({ time: at, track: "bass", vel: note.vel, pitch });
     }
     for (const stab of chords.stabs) {
-      if (!plays(stab, STAB_STEPS)) continue;
+      if (!due(stab, "chords", STAB_STEPS)) continue;
       this.stab(chordPitches(chords, chord), stab.len, at, energy);
       this.pulse({ time: at, track: "chords", vel: 0.8 });
     }
     for (const note of melody) {
-      if (!plays(note, LOOP_STEPS)) continue;
-      const pitch = tonePitch(chords, chord, note.tone, MELODY_LOW);
+      if (!due(note, "melody", LOOP_STEPS)) continue;
+      const pitch = tonePitch(chords, chord, note.tone, this.feel.melodyLow);
       this.lead(pitch, note.len, note.vel, at);
       this.pulse({ time: at, track: "melody", vel: note.vel, pitch });
     }
@@ -251,7 +266,7 @@ export class Engine {
   private bass(pitch: number, len: number, vel: number, time: number): void {
     const { music } = this.graph!;
     const frequency = hz(pitch);
-    const hold = len * STEP * 0.9;
+    const hold = len * this.stepSeconds * 0.9;
     switch (this.groove.sounds.bass) {
       case 1: {
         // Rund: a saw behind a low filter that closes a little after the attack.
@@ -285,7 +300,7 @@ export class Engine {
   private stab(pitches: number[], len: number, time: number, energy: number): void {
     const context = this.context!;
     const { music, room } = this.graph!;
-    const hold = len * STEP;
+    const hold = len * this.stepSeconds;
     let amp: GainNode;
     switch (this.groove.sounds.chords) {
       case 1:
@@ -295,7 +310,7 @@ export class Engine {
           const frequency = hz(pitch);
           const carrier = this.osc("sine", frequency, time, hold + 1.2);
           const bite = context.createGain();
-          bite.gain.setValueAtTime(frequency * (1 + 2 * energy), time);
+          bite.gain.setValueAtTime(frequency * (1 + 2 * energy) * this.feel.brightness, time);
           bite.gain.setTargetAtTime(frequency * 0.3, time, 0.12);
           this.osc("sine", frequency, time, hold + 1.2).connect(bite).connect(carrier.frequency);
           carrier.connect(amp);
@@ -304,7 +319,7 @@ export class Engine {
       case 2: {
         // Orgel: three drawbars per note, on at once and off at once.
         amp = this.envelope(time, 0.033, 0.003, hold, 0.08);
-        const filter = this.filter("lowpass", 1200 + 4000 * energy, 0.7);
+        const filter = this.filter("lowpass", (1200 + 4000 * energy) * this.feel.brightness, 0.7);
         for (const pitch of pitches) {
           for (const [harmonic, level] of [[1, 1], [2, 0.6], [3, 0.3]] as const) {
             const drawbar = context.createGain();
@@ -317,7 +332,7 @@ export class Engine {
       }
       default: {
         // Säge: two detuned saws per note behind a lowpass that the energy opens.
-        const cutoff = 500 + 2600 * energy;
+        const cutoff = (500 + 2600 * energy) * this.feel.brightness;
         const filter = this.filter("lowpass", cutoff, 1.5);
         filter.frequency.setValueAtTime(cutoff * 1.8, time);
         filter.frequency.setTargetAtTime(cutoff, time, 0.08);
@@ -339,14 +354,15 @@ export class Engine {
   /** The chord of the bar as a soft bed; it steps back as the energy rises and the stabs take over. */
   private pad(pitches: number[], time: number, energy: number): void {
     const { music, room } = this.graph!;
-    const bar = STEP * STEPS_PER_BAR;
-    const filter = this.filter("lowpass", 380 + 700 * energy, 1);
+    const bar = this.stepSeconds * STEPS_PER_BAR;
+    const filter = this.filter("lowpass", (380 + 700 * energy) * this.feel.brightness, 1);
     for (const pitch of pitches) {
       const osc = this.osc("sawtooth", hz(pitch), time, bar + 2.2);
       osc.detune.value = Math.random() * 12 - 6;
       osc.connect(filter);
     }
-    const amp = this.envelope(time, 0.085 * (1 - 0.6 * energy), 0.5, bar, 0.9);
+    // A sad mood leans on the bed.
+    const amp = this.envelope(time, 0.085 * (1 - 0.6 * energy) * (0.6 + 0.4 * this.feel.space), 0.5, bar, 0.9);
     filter.connect(amp).connect(music);
     amp.connect(room);
   }
@@ -360,7 +376,7 @@ export class Engine {
     switch (this.groove.sounds.melody) {
       case 1: {
         // Flöte: a soft attack and a vibrato that comes in late.
-        const hold = Math.max(len, 2) * STEP;
+        const hold = Math.max(len, 2) * this.stepSeconds;
         amp = this.envelope(time, vel * 0.2, 0.05, hold, 0.3);
         const osc = this.osc("triangle", frequency, time, hold + 0.9);
         const vibrato = context.createGain();
@@ -447,9 +463,10 @@ export class Engine {
       if (seconds) param.setTargetAtTime(value, context.currentTime, seconds);
       else param.value = value;
     };
-    glide(graph.room.gain, 0.09 * hall);
+    // A sad mood widens the room and lets the echo run longer.
+    glide(graph.room.gain, 0.09 * hall * this.feel.space);
     glide(graph.echo.gain, 0.1 * echo);
-    glide(graph.echoFeedback.gain, 0.25 + 0.04 * echo);
+    glide(graph.echoFeedback.gain, Math.min(0.75, (0.25 + 0.04 * echo) * (0.7 + 0.3 * this.feel.space)));
     // The tape: about five cents of slow wow and a trace of flutter at the middle setting.
     glide(graph.wow.gain, 0.0003 * tape);
     glide(graph.flutter.gain, 0.000004 * tape);
@@ -458,6 +475,17 @@ export class Engine {
     // Left of the middle the lowpass comes down to 300 Hz, right of it the highpass climbs to 2 kHz.
     glide(graph.dull.frequency, filter < 0 ? 20000 * (300 / 20000) ** (-filter / 5) : 20000);
     glide(graph.thin.frequency, filter > 0 ? 20 * (2000 / 20) ** (filter / 5) : 20);
+  }
+
+  /** Brings the mood's feel to the fixed part of the sound, from the bar line at `time`. */
+  private applyFeel(time: number): void {
+    const graph = this.graph;
+    if (!graph) return;
+    graph.tone.frequency.setTargetAtTime(toneCutoff(this.energyNow) * this.feel.brightness, time, 0.4);
+    graph.drums.gain.setTargetAtTime(this.feel.punch, time, 0.3);
+    graph.echoTime.setTargetAtTime((15 / this.feel.tempo) * 3, time, 0.5);
+    graph.room.gain.setTargetAtTime(0.09 * this.effectsNow.hall * this.feel.space, time, 0.5);
+    graph.echoFeedback.gain.setTargetAtTime(Math.min(0.75, (0.25 + 0.04 * this.effectsNow.echo) * (0.7 + 0.3 * this.feel.space)), time, 0.5);
   }
 
   private build(context: AudioContext): Graph {
@@ -485,7 +513,7 @@ export class Engine {
     const drive = gain(1);
     const saturation = context.createWaveShaper();
     saturation.curve = Float32Array.from({ length: 1024 }, (_, index) => Math.tanh(1.6 * (index / 511.5 - 1)));
-    const tone = this.filter("lowpass", toneCutoff(this.energyNow), 0.5);
+    const tone = this.filter("lowpass", toneCutoff(this.energyNow) * this.feel.brightness, 0.5);
     const dull = this.filter("lowpass", 20000, 0.9);
     const thin = this.filter("highpass", 20, 0.9);
     const limiter = context.createDynamicsCompressor();
@@ -496,7 +524,7 @@ export class Engine {
     const master = gain(this.volumeNow);
     wobble.connect(drive).connect(saturation).connect(tone).connect(dull).connect(thin).connect(limiter).connect(master).connect(context.destination);
 
-    const drums = gain(1);
+    const drums = gain(this.feel.punch);
     drums.connect(wobble);
     const music = gain(1);
     music.connect(wobble);
@@ -509,7 +537,7 @@ export class Engine {
     // A dotted-eighth echo that gets duller with every repeat.
     const echo = gain(0);
     const delay = context.createDelay(1);
-    delay.delayTime.value = STEP * 3;
+    delay.delayTime.value = this.stepSeconds * 3;
     const damp = this.filter("lowpass", 1800, 0.5);
     const echoFeedback = gain(0);
     echo.connect(delay).connect(damp).connect(music);
@@ -527,7 +555,7 @@ export class Engine {
     const samples = noise.getChannelData(0);
     for (let index = 0; index < samples.length; index += 1) samples[index] = Math.random() * 2 - 1;
 
-    return { drums, music, room, echo, echoFeedback, wow, flutter, dust, drive, tone, dull, thin, master, noise };
+    return { drums, music, room, echo, echoFeedback, wow, flutter, dust, drive, echoTime: delay.delayTime, tone, dull, thin, master, noise };
   }
 }
 

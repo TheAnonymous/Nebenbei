@@ -21,15 +21,47 @@ body {
   font: 16px/1.5 ui-rounded, "Nunito", system-ui, sans-serif;
 }
 
-/* The sky: a small canvas, spread over the window and blurred until it glows. */
+/* The sky: a small canvas, stretched over the window; the stretching is what makes it soft. */
 .sky {
   position: fixed;
-  inset: -48px;
+  inset: 0;
   z-index: -1;
-  width: calc(100% + 96px);
-  height: calc(100% + 96px);
-  filter: blur(14px);
+  width: 100%;
+  height: 100%;
   pointer-events: none;
+}
+
+/* The page arrives piece by piece. */
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+.player > *,
+.logbook {
+  animation: arrive 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.player > :nth-child(2) { animation-delay: 0.06s; }
+.player > :nth-child(3) { animation-delay: 0.12s; }
+.player > :nth-child(4) { animation-delay: 0.18s; }
+.player > :nth-child(5) { animation-delay: 0.24s; }
+.player > :nth-child(n + 6) { animation-delay: 0.3s; }
+.logbook { animation-delay: 0.36s; }
+
+/* A word that has just changed comes up from below. */
+@keyframes swap {
+  from {
+    opacity: 0;
+    transform: translateY(60%);
+  }
+}
+
+.swap {
+  display: inline-block;
+  animation: swap 0.3s ease-out;
 }
 
 main {
@@ -92,10 +124,15 @@ button {
   font: inherit;
   font-size: 14px;
   cursor: pointer;
+  transition: transform 0.15s ease-out, scale 0.1s linear, border-color 0.2s, background-color 0.2s, color 0.2s, opacity 0.2s;
 }
 
 button:hover:not(:disabled) {
   border-color: var(--dim);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
 button:disabled {
@@ -165,6 +202,20 @@ kbd {
   font-weight: 400;
 }
 
+.lane-box {
+  position: relative;
+}
+
+/* A glow behind the lane that swells with its track. Only its opacity changes, which costs next to nothing. */
+.glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  box-shadow: 0 0 26px 3px var(--color);
+  opacity: 0;
+  pointer-events: none;
+}
+
 .lane {
   position: relative;
   height: 72px;
@@ -188,7 +239,33 @@ kbd {
   border: 1px solid transparent;
   border-radius: 3px;
   background: var(--color) padding-box;
+  transition: opacity 0.4s, transform 0.4s ease-out, filter 0.4s ease-out;
+}
+
+/* A mark lights up at once when it sounds and settles slowly. */
+.lane i.hit {
   transition: opacity 0.4s;
+  transform: scale(1.35);
+  filter: brightness(1.6);
+}
+
+/* New marks pop in, old ones burst and fade. */
+.lane i.mark-enter-from {
+  opacity: 0;
+  transform: scale(0.2);
+}
+
+.lane i.mark-enter-active {
+  transition: opacity 0.5s, transform 0.5s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+.lane i.mark-leave-to {
+  opacity: 0;
+  transform: scale(1.8);
+}
+
+.lane i.mark-leave-active {
+  transition: opacity 0.35s, transform 0.35s ease-in;
 }
 
 /* A held track keeps its pattern: a firm frame. */
@@ -218,12 +295,15 @@ button.waiting {
   opacity: 0.16;
 }
 
+/* The line that shows where the music is; the page moves it every frame. */
 .lane b {
   position: absolute;
   top: 0;
   bottom: 0;
+  left: 0;
   width: calc(100% / 64);
-  background: rgb(255 245 228 / 0.14);
+  background: linear-gradient(to right, transparent, rgb(255 245 228 / 0.22));
+  will-change: transform;
 }
 
 .chords .lane i {
@@ -232,6 +312,7 @@ button.waiting {
 }
 
 .chord {
+  animation: swap 0.45s ease-out;
   position: absolute;
   top: 6px;
   padding-left: 8px;
@@ -326,6 +407,7 @@ input[type="range"] {
 
 /* One bar per five minutes of music, as high as the energy. */
 .strip span {
+  transition: height 0.6s ease-out, background-color 0.4s;
   min-width: 0;
   border-radius: 2px 2px 0 0;
   background: var(--drums);
@@ -380,6 +462,7 @@ h3 {
 }
 
 .logbook ul {
+  position: relative;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -391,6 +474,28 @@ h3 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
+}
+
+/* Entries slide in from the right, leave to the left, and the others close the gap. */
+.entry-enter-from {
+  opacity: 0;
+  transform: translateX(24px);
+}
+
+.entry-leave-to {
+  opacity: 0;
+  transform: translateX(-24px);
+}
+
+.entry-enter-active,
+.entry-leave-active,
+.entry-move {
+  transition: opacity 0.35s, transform 0.35s ease-out;
+}
+
+.entry-leave-active {
+  position: absolute;
+  width: 100%;
 }
 
 .entry {
@@ -421,4 +526,14 @@ h3 {
 footer {
   color: var(--dim);
   font-size: 13px;
+}
+
+/* Whoever asked the system for less motion gets a page that stands still. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }

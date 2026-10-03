@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
 import type { Groove, Note, Rng } from "../src/music/groove";
-import { BASS_STEPS, chordName, chordPitches, DRUM_STEPS, keyName, LOOP_STEPS, MODES, mutate, roll, rollGroove, SOUNDS, STAB_STEPS, tonePitch, TRACKS } from "../src/music/groove";
+import { BASS_STEPS, chordName, chordPitches, DRUM_STEPS, feelOf, keyName, LOOP_STEPS, MODES, mutate, plays, roll, rollGroove, SOUNDS, STAB_STEPS, tonePitch, TRACKS } from "../src/music/groove";
 
 /** mulberry32: the same seed gives the same music. */
 function seeded(seed: number): Rng {
@@ -50,7 +50,7 @@ function assertPlayable(groove: Groove): void {
     assert(!chordName(groove.chords, chord).includes("♭5"));
     assert.equal(pitches.length, 4);
     for (const pitch of pitches) {
-      assert(pitch >= 52 && pitch < 69, `chord pitch ${pitch}`);
+      assert(pitch >= 50 && pitch < 71, `chord pitch ${pitch}`);
       // Every chord note belongs to the key.
       assert(scale.includes((((pitch - key) % 12) + 12) % 12), `pitch ${pitch} outside the key`);
     }
@@ -109,10 +109,13 @@ it("turns chords and tones into the right pitches and names", () => {
   // Sharps in g sharp minor, flats in f minor.
   expect(chordName({ key: 8, mode: 0 }, tonic)).toBe("G♯m7");
   expect(chordName({ key: 5, mode: 0 }, { degree: 5, inversion: 0, ninth: false })).toBe("D♭maj7");
-  // Am7 from E3 upwards: E G A C.
+  // Am7 in the saddest mood from D3 upwards: E G A C.
   expect(chordPitches(aMinor, tonic)).toEqual([52, 55, 57, 60]);
   // Am9 leaves the root to the bass: E G H C.
   expect(chordPitches(aMinor, { ...tonic, ninth: true })).toEqual([52, 55, 59, 60]);
+  // Happier moods voice the chords a semitone higher per step: in dorian the lowest voice starts at E flat 3, the top inversion at A flat 3.
+  expect(chordPitches({ key: 9, mode: 1 }, tonic)).toEqual([52, 55, 57, 60]);
+  expect(chordPitches({ key: 9, mode: 1 }, { ...tonic, inversion: 2 })).toEqual([57, 60, 64, 67]);
   // The ninth above the fifth degree would be a semitone above its root, so it is not played.
   const fifth = { degree: 4, inversion: 0, ninth: true };
   expect(chordPitches(aMinor, fifth)).toEqual(chordPitches(aMinor, { ...fifth, ninth: false }));
@@ -140,4 +143,30 @@ it("moves from sad to happy one note at a time", () => {
   expect(keyName({ key: 3, mode: 3 })).toBe("Es-Dur");
   expect(chordName({ key: 3, mode: 3 }, { degree: 3, inversion: 0, ninth: false })).toBe("A♭maj7");
   expect(tonePitch({ key: 3, mode: 3 }, tonic, 1, 33)).toBe(43);
+});
+
+it("lets the mood change more than the scale", () => {
+  const sad = feelOf(0);
+  const happy = feelOf(MODES.length - 1);
+  // From sad to happy: faster, more swung, brighter, drier, punchier, busier, higher.
+  expect(sad.tempo).toBe(104);
+  expect(happy.tempo).toBe(126);
+  for (let mode = 1; mode < MODES.length; mode += 1) {
+    const before = feelOf(mode - 1);
+    const after = feelOf(mode);
+    expect(after.tempo).toBeGreaterThan(before.tempo);
+    expect(after.swing).toBeGreaterThan(before.swing);
+    expect(after.brightness).toBeGreaterThan(before.brightness);
+    expect(after.space).toBeLessThan(before.space);
+    expect(after.punch).toBeGreaterThan(before.punch);
+    expect(after.wait).toBeLessThan(before.wait);
+    expect(after.melodyLow).toBeGreaterThan(before.melodyLow);
+  }
+  // The kick (from energy 0.4) waits for more energy when sad and comes earlier when happy; the bass does not care.
+  const kick = { min: 0.4 };
+  expect([0, 2, 4].map((mode) => plays(kick, "drums", 0.4, mode))).toEqual([false, true, true]);
+  expect([0, 2, 4].map((mode) => plays(kick, "drums", 0.3, mode))).toEqual([false, false, true]);
+  expect([0, 2, 4].map((mode) => plays(kick, "bass", 0.4, mode))).toEqual([true, true, true]);
+  // At energy 0 only what waits for nothing plays, in every mood.
+  expect(MODES.some((_, mode) => plays({ min: 0.05 }, "melody", 0, mode))).toBe(false);
 });

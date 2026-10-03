@@ -48,7 +48,7 @@ const loudest = (page: Page): Promise<number> =>
 
 /** What each lane shows (drums, bass, chords, melody), to tell whether a track changed. */
 const lanes = (page: Page): Promise<string[]> =>
-  page.evaluate(() => [...document.querySelectorAll(".track")].map((track) => [...track.querySelectorAll("i")].map((mark) => mark.getAttribute("style")).join() + track.querySelector(".lane")!.textContent));
+  page.evaluate(() => [...document.querySelectorAll(".track")].map((track) => [...track.querySelectorAll("i:not(.mark-leave-active)")].map((mark) => mark.getAttribute("style")).sort().join() + track.querySelector(".lane")!.textContent));
 
 /** The four tracks of the groove as the page stores it, to tell changes that the lanes do not show (a chord's inversion). */
 const storedTracks = (page: Page): Promise<string[]> =>
@@ -93,11 +93,11 @@ test("plays by itself, changes without being touched and fills the day strip", a
   const chords = page.locator(".track.chords .lane");
   const sad = await chords.textContent();
   for (let press = 0; press < 4; press += 1) await page.keyboard.press("ArrowRight");
-  await expect(page.locator(".mood output")).toHaveText("Lydisch");
+  await expect(page.locator(".mood output")).toHaveText("Lydisch · 126 BPM");
   await expect(chords).not.toHaveText(sad!, { timeout: 4_000 });
   await expect(chords).toContainText("maj");
   await page.keyboard.press("ArrowLeft");
-  await expect(page.locator(".mood output")).toHaveText("Dur");
+  await expect(page.locator(".mood output")).toHaveText("Dur · 121 BPM");
 
   await page.keyboard.press("Space");
   await expect(play(page)).toHaveText("Start");

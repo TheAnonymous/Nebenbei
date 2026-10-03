@@ -8,9 +8,9 @@ import type { Entry } from "./logbook";
 import { loadDay, loadLogbook, loadSession, saveDay, saveLogbook, saveSession } from "./logbook";
 import { mediaKeysPlaying, setUpMediaKeys } from "./media-keys";
 import type { Groove, TrackId } from "./music/groove";
-import { BASS_STEPS, chordName, DRUM_STEPS, DRUM_VOICES, grooveName, LOOP_STEPS, MODES, mutate, roll, rollGroove, SOUNDS, STAB_STEPS, TRACKS } from "./music/groove";
+import { BASS_STEPS, chordName, DRUM_STEPS, DRUM_VOICES, feelOf, grooveName, LOOP_STEPS, MODES, mutate, plays, roll, rollGroove, SOUNDS, STAB_STEPS, TRACKS } from "./music/groove";
 import { versionLabel } from "./version";
-import { startVisual } from "./visual";
+import { ROWS, startVisual } from "./visual";
 
 /** One small change every eight bars (about 16 seconds). */
 const MUTATE_EVERY_LOOPS = 2;
@@ -96,7 +96,12 @@ engine.onBar = (bar) => {
   show(result.groove, [result.track]);
 };
 
-const entryNow = (): Entry => ({ at: Date.now(), name: grooveName(groove.value), groove: groove.value });
+// Two entries never share a time: the list is keyed by it.
+let lastEntryAt = 0;
+function entryNow(): Entry {
+  lastEntryAt = Math.max(Date.now(), lastEntryAt + 1);
+  return { at: lastEntryAt, name: grooveName(groove.value), groove: groove.value };
+}
 
 /** Logs the running groove on the trail, just before something replaces it. */
 function leaveTrail(): void {
@@ -175,10 +180,31 @@ function toggleHold(track: TrackId): void {
   if (!held.value.delete(track)) held.value.add(track);
 }
 
+// What moves every frame is moved straight in the page, past Vue: the lines over the lanes, the glow behind
+// them, the pulse of the Start button. Only the sixteenth that sounds goes through Vue, for the marks.
+const heads: (HTMLElement | null)[] = [];
+const glows: (HTMLElement | null)[] = [];
+const playButton = ref<HTMLElement | null>(null);
+const keepElement = (list: (HTMLElement | null)[], index: number) => (element: unknown): void => {
+  list[index] = element instanceof HTMLElement ? element : null;
+};
+
 let frame = 0;
 function follow(): void {
-  step.value = engine.position();
+  const position = engine.position();
+  // Each line is a sixty-fourth of its lane wide, so its own width is one sixteenth.
+  for (const head of heads) if (head) head.style.transform = `translateX(${Math.max(0, position) * 100}%)`;
+  step.value = Math.floor(position);
   frame = requestAnimationFrame(follow);
+}
+
+/** The sky reports how strongly each track sounds; the page glows along. */
+function glow(levels: readonly number[], kick: number): void {
+  TRACKS.forEach((track, index) => {
+    const element = glows[index];
+    if (element) element.style.opacity = levels[ROWS[track]]!.toFixed(3);
+  });
+  if (playButton.value) playButton.value.style.scale = (1 + 0.05 * kick).toFixed(4);
 }
 
 async function toggle(): Promise<void> {
@@ -229,7 +255,7 @@ function releaseFocus(event: MouseEvent): void {
 let stopVisual = (): void => undefined;
 onMounted(() => {
   if (sky.value) {
-    stopVisual = startVisual(sky.value, () => ({ playing: playing.value, energy: energy.value / MAX_ENERGY, mood: groove.value.chords.mode / (MODES.length - 1), pulses: engine.takePulses() }));
+    stopVisual = startVisual(sky.value, () => ({ playing: playing.value, energy: energy.value / MAX_ENERGY, mood: groove.value.chords.mode / (MODES.length - 1), pulses: engine.takePulses() }), glow);
   }
   window.addEventListener("keydown", onKey);
   setUpMediaKeys({ play: () => setPlaying(true), pause: () => setPlaying(false), next: () => rollTracks(TRACKS), previous: back });
@@ -257,13 +283,13 @@ function across<T extends { step: number }>(items: T[], length: number): T[] {
 
 const lanes = computed(() => {
   const { drums, bass, chords, melody, sounds } = groove.value;
-  const on = (item: { min: number }): boolean => item.min <= energy.value / MAX_ENERGY + 1e-9;
+  const on = (item: { min: number }, track: TrackId): boolean => plays(item, track, energy.value / MAX_ENERGY, chords.mode);
   const lane = (id: TrackId, name: string, rows: number, marks: Mark[], labels: string[] = []) => ({ id, name, rows, marks, labels, sound: SOUNDS[id][sounds[id]]! });
   return [
-    lane("drums", "Drums", DRUM_VOICES.length, across(drums, DRUM_STEPS).map((hit) => ({ step: hit.step, len: 1, row: DRUM_VOICES.indexOf(hit.voice), on: on(hit) }))),
-    lane("bass", "Bass", 5, across(bass, BASS_STEPS).map((note) => ({ step: note.step, len: note.len, row: 4 - note.tone, on: on(note) }))),
-    lane("chords", "Akkorde", 1, across(chords.stabs, STAB_STEPS).map((stab) => ({ step: stab.step, len: stab.len, row: 0, on: on(stab) })), chords.bars.map((chord) => chordName(chords, chord))),
-    lane("melody", "Melodie", 6, melody.map((note) => ({ step: note.step, len: note.len, row: 5 - note.tone, on: on(note) }))),
+    lane("drums", "Drums", DRUM_VOICES.length, across(drums, DRUM_STEPS).map((hit) => ({ step: hit.step, len: 1, row: DRUM_VOICES.indexOf(hit.voice), on: on(hit, "drums") }))),
+    lane("bass", "Bass", 5, across(bass, BASS_STEPS).map((note) => ({ step: note.step, len: note.len, row: 4 - note.tone, on: on(note, "bass") }))),
+    lane("chords", "Akkorde", 1, across(chords.stabs, STAB_STEPS).map((stab) => ({ step: stab.step, len: stab.len, row: 0, on: on(stab, "chords") })), chords.bars.map((chord) => chordName(chords, chord))),
+    lane("melody", "Melodie", 6, melody.map((note) => ({ step: note.step, len: note.len, row: 5 - note.tone, on: on(note, "melody") }))),
   ];
 });
 
@@ -307,7 +333,9 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
     </header>
 
     <div class="actions">
-      <button class="play" type="button" @click="toggle">{{ playing ? "Pause" : "Start" }}</button>
+      <button ref="playButton" class="play" type="button" @click="toggle">
+        <span :key="String(playing)" class="swap">{{ playing ? "Pause" : "Start" }}</span>
+      </button>
       <button type="button" @click="rollTracks(TRACKS)">Alles würfeln <kbd>0</kbd></button>
       <button type="button" :disabled="!logbook.trail.length" @click="back">Zurück <kbd>Z</kbd></button>
       <button type="button" @click="keep">Merken <kbd>M</kbd></button>
@@ -317,17 +345,25 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
       <div v-for="(lane, index) in lanes" :key="lane.id" class="track" :class="[lane.id, { changed: changed.has(lane.id), held: held.has(lane.id) }]">
         <span class="name">
           <span><kbd>{{ index + 1 }}</kbd> {{ lane.name }}</span>
-          <button type="button" class="sound" :aria-label="`${lane.name}: Instrument ${lane.sound}, zum nächsten wechseln`" @click="cycleSound(lane.id)">{{ lane.sound }}</button>
+          <button type="button" class="sound" :aria-label="`${lane.name}: Instrument ${lane.sound}, zum nächsten wechseln`" @click="cycleSound(lane.id)">
+            <span :key="lane.sound" class="swap">{{ lane.sound }}</span>
+          </button>
         </span>
-        <div class="lane">
-          <i
-            v-for="(mark, at) in lane.marks"
-            :key="at"
-            :class="{ off: !mark.on }"
-            :style="{ left: percent(mark.step, LOOP_STEPS), width: percent(mark.len, LOOP_STEPS), top: percent(mark.row, lane.rows), height: percent(1, lane.rows) }"
-          />
-          <span v-for="(label, bar) in lane.labels" :key="bar" class="chord" :style="{ left: percent(bar, lane.labels.length) }">{{ label }}</span>
-          <b v-if="step >= 0" :style="{ left: percent(step, LOOP_STEPS) }" />
+        <div class="lane-box">
+          <span :ref="keepElement(glows, index)" class="glow" />
+          <div class="lane">
+            <!-- Marks come and go softly when the pattern changes, and light up while they sound. -->
+            <TransitionGroup name="mark">
+              <i
+                v-for="mark in lane.marks"
+                :key="`${mark.step}:${mark.row}`"
+                :class="{ off: !mark.on, hit: mark.on && step >= mark.step && step < mark.step + mark.len }"
+                :style="{ left: percent(mark.step, LOOP_STEPS), width: percent(mark.len, LOOP_STEPS), top: percent(mark.row, lane.rows), height: percent(1, lane.rows) }"
+              />
+            </TransitionGroup>
+            <span v-for="(label, bar) in lane.labels" :key="`${bar}:${label}`" class="chord" :style="{ left: percent(bar, lane.labels.length) }">{{ label }}</span>
+            <b v-show="step >= 0" :ref="keepElement(heads, index)" />
+          </div>
         </div>
         <button type="button" :class="{ waiting: waiting.has(lane.id) }" :disabled="held.has(lane.id)" :aria-label="`${lane.name} würfeln`" @click="rollTracks([lane.id])">Würfeln</button>
         <button type="button" class="hold" :aria-pressed="held.has(lane.id)" :aria-label="`${lane.name} festhalten`" @click="toggleHold(lane.id)">{{ held.has(lane.id) ? "Gehalten" : "Halten" }}</button>
@@ -341,7 +377,7 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
         <span class="ends"><span>ruhig</span><span>voller Groove</span></span>
       </label>
       <label class="energy mood">
-        <span>Stimmung <output>{{ MODES[mood]!.name }}</output></span>
+        <span>Stimmung <output :key="mood" class="swap">{{ MODES[mood]!.name }} · {{ Math.round(feelOf(mood).tempo) }} BPM</output></span>
         <input v-model.number="mood" type="range" min="0" :max="MODES.length - 1" step="1" />
         <span class="ends"><span>traurig</span><span>fröhlich</span></span>
       </label>
@@ -391,16 +427,16 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
       <p v-if="saveFailed" class="warning">Der Browser hat das Speichern abgelehnt. Was du jetzt merkst, ist nach dem Schließen der Seite weg.</p>
       <template v-for="section in sections" :key="section.id">
         <h3>{{ section.title }}</h3>
-        <p v-if="!section.entries.length" class="empty">{{ section.empty }}</p>
-        <ul v-else>
-          <li v-for="(entry, index) in section.entries" :key="`${entry.at}-${index}`">
+        <TransitionGroup tag="ul" name="entry">
+          <li v-for="entry in section.entries" :key="entry.at">
             <button type="button" class="entry" @click="recall(entry)">
               <span>{{ when(entry.at) }} · {{ entry.name }}</span>
               <small>{{ chordsOf(entry) }}</small>
             </button>
             <button type="button" class="forget" :aria-label="`${entry.name} löschen`" @click="forget(section.id, entry)">×</button>
           </li>
-        </ul>
+        </TransitionGroup>
+        <p v-if="!section.entries.length" class="empty">{{ section.empty }}</p>
       </template>
     </aside>
   </main>
