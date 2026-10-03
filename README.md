@@ -8,7 +8,7 @@ Requests.
 
 ## Stand
 
-Bauschritte 1 und 2 von 4: **Klang und Selbstlauf, Festhalten und Würfeln.**
+Bauschritte 1 bis 3 von 4: **Klang und Selbstlauf, Festhalten und Würfeln, Logbuch.**
 
 - Start/Pause. Die Musik läuft weiter, wenn der Tab im Hintergrund ist.
 - Alle acht Takte (etwa 16 Sekunden) ändert sich an einer Spur eine
@@ -23,8 +23,16 @@ Bauschritte 1 und 2 von 4: **Klang und Selbstlauf, Festhalten und Würfeln.**
   Würfeln, kein Zurück.
 - **Würfeln:** Die Spur bekommt ein neues Muster. Läuft die Musik, setzt es am
   nächsten Taktstrich ein (höchstens zwei Sekunden später).
-- **Zurück** holt den Groove von vor dem letzten Würfeln wieder (bis zu 50
-  Schritte, nur bis zum Neuladen der Seite).
+- **Logbuch.** „Gemerkt“ sind die Grooves, die man mit `M` festhält, mit
+  Uhrzeit und einem Namen wie „staubig, d-Moll“. Im „Verlauf“ landet vor jedem
+  Würfeln und Zurückholen von selbst der Groove, der gerade lief (die letzten
+  20). Ein Klick auf einen Eintrag spielt ihn wieder, ab dem nächsten
+  Taktstrich; gehaltene Spuren bleiben dabei stehen.
+- **Zurück** nimmt das letzte Würfeln oder Zurückholen zurück: Der neueste
+  Eintrag des Verlaufs kommt wieder und verlässt den Verlauf.
+- Der laufende Groove, Energie, Lautstärke, gehaltene Spuren und das Logbuch
+  liegen im Speicher des Browsers (`localStorage`) und überstehen das Neuladen.
+  Was von dort zurückkommt, wird vor dem Abspielen geprüft.
 
 | Eingabe | Wirkung |
 |---|---|
@@ -33,6 +41,7 @@ Bauschritte 1 und 2 von 4: **Klang und Selbstlauf, Festhalten und Würfeln.**
 | `Shift` + `1`–`4` | Spur festhalten / loslassen |
 | `0` | alles würfeln, was nicht gehalten ist |
 | `Z` | zurück |
+| `M` | Groove merken |
 | `↑` / `↓` | Energie |
 | Medientaste Play/Pause | Start / Pause, auch bei Tab im Hintergrund |
 | Medientaste Weiter | alles würfeln, was nicht gehalten ist |
@@ -42,9 +51,8 @@ Für die Medientasten spielt neben der Musik eine unhörbare Schleife in einem
 Audio-Element mit: Browser geben die Tasten nur an Seiten, die ein
 Medienelement abspielen.
 
-Noch nicht gebaut: Logbuch (Schritt 3), Feinschliff und Veröffentlichung auf
-musik.jodie-oesterling.de (Schritt 4). Bis zum Logbuch beginnt jeder
-Seitenaufruf mit einem neuen Groove.
+Noch nicht gebaut: Feinschliff (unter anderem der Tagesstreifen) und
+Veröffentlichung auf musik.jodie-oesterling.de (Schritt 4).
 
 ## Entwickeln
 
@@ -57,5 +65,7 @@ mise exec -- npm run verify   # Typprüfung, Tests, Build
 - `src/music/groove.ts`: der Groove als Daten, Würfeln und Mutieren (reine
   Funktionen, getestet in `tests/groove.test.ts`).
 - `src/audio/engine.ts`: Taktgeber und Klangerzeugung (Web Audio).
+- `src/logbook.ts`: was der Browser behält, und die Prüfung beim Zurücklesen
+  (getestet in `tests/logbook.test.ts`).
 - `src/media-keys.ts`: Medientasten.
-- `src/App.vue`: die Seite, Tasten, Festhalten, Würfeln, Zurück.
+- `src/App.vue`: die Seite, Tasten, Festhalten, Würfeln, Zurück, Logbuch.

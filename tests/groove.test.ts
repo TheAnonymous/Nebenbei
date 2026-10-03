@@ -98,6 +98,9 @@ it("turns chords and tones into the right pitches and names", () => {
   expect(chordName(a, { degree: 2, inversion: 0, ninth: true })).toBe("Cmaj9");
   expect(chordName(a, { degree: 6, inversion: 0, ninth: false })).toBe("G7");
   expect(chordName(11, tonic)).toBe("Hm7");
+  // Sharps in g sharp minor, flats in f minor.
+  expect(chordName(8, tonic)).toBe("G♯m7");
+  expect(chordName(5, { degree: 5, inversion: 0, ninth: false })).toBe("D♭maj7");
   // Am7 from E3 upwards: E G A C.
   expect(chordPitches(a, tonic)).toEqual([52, 55, 57, 60]);
   // Am9 leaves the root to the bass: E G H C.

@@ -1,25 +1,30 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch, watchEffect } from "vue";
 import { Engine } from "./audio/engine";
+import type { Entry } from "./logbook";
+import { loadLogbook, loadSession, saveLogbook, saveSession } from "./logbook";
 import { mediaKeysPlaying, setUpMediaKeys } from "./media-keys";
 import type { Groove, TrackId } from "./music/groove";
-import { BASS_STEPS, chordName, DRUM_STEPS, DRUM_VOICES, LOOP_STEPS, mutate, roll, rollGroove, STAB_STEPS, TRACKS } from "./music/groove";
+import { BASS_STEPS, chordName, DRUM_STEPS, DRUM_VOICES, grooveName, LOOP_STEPS, mutate, roll, rollGroove, STAB_STEPS, TRACKS } from "./music/groove";
 import { versionLabel } from "./version";
 
 /** One small change every eight bars (about 16 seconds). */
 const MUTATE_EVERY_LOOPS = 2;
 const MAX_ENERGY = 10;
-// ponytail: the way back lives in memory and ends with the page; the logbook (step 3) keeps it.
-const MAX_HISTORY = 50;
+/** How many grooves from before a roll the trail keeps. */
+const MAX_TRAIL = 20;
 
-// Shallow refs: a groove is replaced as a whole with every change, never edited in place.
-const groove = shallowRef(rollGroove(Math.random));
-const history = shallowRef<Groove[]>([]);
-const energy = ref(5);
-const volume = ref(80);
+// The page picks up where the last visit stopped.
+const session = loadSession();
+// Shallow refs: grooves and the logbook are replaced as a whole with every change, never edited in place.
+const groove = shallowRef(session?.groove ?? rollGroove(Math.random));
+const logbook = shallowRef(loadLogbook());
+const energy = ref(session?.energy ?? 5);
+const volume = ref(session?.volume ?? 80);
 const playing = ref(false);
 const step = ref(-1);
-const held = ref(new Set<TrackId>());
+const held = ref(new Set<TrackId>(session?.held));
+const saveFailed = ref(false);
 /** Tracks whose roll waits for the bar line. */
 const waiting = ref(new Set<TrackId>());
 /** Tracks that have just changed and glow for a moment. */
@@ -28,6 +33,12 @@ const changed = ref(new Set<TrackId>());
 const engine = new Engine(groove.value);
 watch(energy, (value) => (engine.energy = value / MAX_ENERGY), { immediate: true });
 watch(volume, (value) => (engine.volume = value / 100), { immediate: true });
+watchEffect(() => {
+  if (!saveSession({ groove: groove.value, energy: energy.value, volume: volume.value, held: [...held.value] })) saveFailed.value = true;
+});
+watch(logbook, (value) => {
+  if (!saveLogbook(value)) saveFailed.value = true;
+});
 
 let changedTimer = 0;
 function show(next: Groove, tracks: readonly TrackId[]): void {
@@ -57,13 +68,33 @@ engine.onBar = (bar) => {
   show(result.groove, [result.track]);
 };
 
-/** New patterns for the tracks that are not held. What was there before stays within reach of `back`. */
+const entryNow = (): Entry => ({ at: Date.now(), name: grooveName(groove.value), groove: groove.value });
+
+/** Logs the running groove on the trail, just before something replaces it. */
+function leaveTrail(): void {
+  const { kept, trail } = logbook.value;
+  logbook.value = { kept, trail: [...trail, entryNow()].slice(-MAX_TRAIL) };
+}
+
+/** Remembers the running groove for good. */
+function keep(): void {
+  const { kept, trail } = logbook.value;
+  const now = JSON.stringify(groove.value);
+  if (kept.some((entry) => JSON.stringify(entry.groove) === now)) return;
+  logbook.value = { kept: [...kept, entryNow()], trail };
+}
+
+function forget(list: "kept" | "trail", entry: Entry): void {
+  logbook.value = { ...logbook.value, [list]: logbook.value[list].filter((other) => other !== entry) };
+}
+
+/** New patterns for the tracks that are not held. What was there before goes on the trail. */
 function rollTracks(tracks: readonly TrackId[]): void {
   const free = tracks.filter((track) => !held.value.has(track) && !waiting.value.has(track));
   if (!free.length) return;
   for (const track of free) waiting.value.add(track);
   onBarLine(() => {
-    history.value = [...history.value, groove.value].slice(-MAX_HISTORY);
+    leaveTrail();
     let next = groove.value;
     for (const track of free) {
       next = roll(next, track, Math.random);
@@ -73,16 +104,29 @@ function rollTracks(tracks: readonly TrackId[]): void {
   });
 }
 
-/** Brings back the groove from before the last roll. Held tracks stay as they are. */
+/** Plays a groove from the logbook. Held tracks stay as they are. */
+function bringBack(source: Groove): void {
+  const free = TRACKS.filter((track) => !held.value.has(track));
+  const next = { ...groove.value };
+  for (const track of free) Object.assign(next, { [track]: source[track] });
+  show(next, free);
+}
+
+function recall(entry: Entry): void {
+  onBarLine(() => {
+    leaveTrail();
+    bringBack(entry.groove);
+  });
+}
+
+/** Undoes the last roll or recall: the newest groove on the trail comes back and leaves the trail. */
 function back(): void {
   onBarLine(() => {
-    const previous = history.value.at(-1);
+    const { kept, trail } = logbook.value;
+    const previous = trail.at(-1);
     if (!previous) return;
-    history.value = history.value.slice(0, -1);
-    const free = TRACKS.filter((track) => !held.value.has(track));
-    const next = { ...groove.value };
-    for (const track of free) Object.assign(next, { [track]: previous[track] });
-    show(next, free);
+    logbook.value = { kept, trail: trail.slice(0, -1) };
+    bringBack(previous.groove);
   });
 }
 
@@ -123,6 +167,7 @@ function onKey(event: KeyboardEvent): void {
   else if (track) rollTracks([track]);
   else if (digit === "0") rollTracks(TRACKS);
   else if (event.key.toLowerCase() === "z") back();
+  else if (event.key.toLowerCase() === "m") keep();
   // A focused button is pressed by the space bar itself.
   else if (event.code === "Space" && target !== "BUTTON") void toggle();
   else return;
@@ -171,10 +216,18 @@ const lanes = computed(() => {
 });
 
 const percent = (part: number, whole: number): string => `${(part / whole) * 100}%`;
+
+const sections = computed(() => [
+  { id: "kept" as const, title: "Gemerkt", empty: "Noch nichts gemerkt. M hält fest, was gerade läuft.", entries: [...logbook.value.kept].reverse() },
+  { id: "trail" as const, title: "Verlauf", empty: "Vor jedem Würfeln landet der alte Groove hier.", entries: [...logbook.value.trail].reverse() },
+]);
+const when = (at: number): string => new Date(at).toLocaleString("de-DE", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
+const chordsOf = (entry: Entry): string => entry.groove.chords.bars.map((chord) => chordName(entry.groove.chords.key, chord)).join(" · ");
 </script>
 
 <template>
   <main @click="releaseFocus">
+    <div class="player">
     <header>
       <h1>Nebenbei</h1>
       <p>Lo-Fi-House, der von allein läuft und sich langsam verändert.</p>
@@ -183,7 +236,8 @@ const percent = (part: number, whole: number): string => `${(part / whole) * 100
     <div class="actions">
       <button class="play" type="button" @click="toggle">{{ playing ? "Pause" : "Start" }}</button>
       <button type="button" @click="rollTracks(TRACKS)">Alles würfeln <kbd>0</kbd></button>
-      <button type="button" :disabled="!history.length" @click="back">Zurück <kbd>Z</kbd></button>
+      <button type="button" :disabled="!logbook.trail.length" @click="back">Zurück <kbd>Z</kbd></button>
+      <button type="button" @click="keep">Merken <kbd>M</kbd></button>
     </div>
 
     <section class="tracks" aria-label="Spuren">
@@ -216,11 +270,30 @@ const percent = (part: number, whole: number): string => `${(part / whole) * 100
     </label>
 
     <p class="keys">
-      <kbd>Leertaste</kbd> Start/Pause · <kbd>1</kbd>–<kbd>4</kbd> Spur würfeln · <kbd>Shift</kbd>+<kbd>1</kbd>–<kbd>4</kbd> Spur festhalten · <kbd>0</kbd> alles würfeln · <kbd>Z</kbd> zurück ·
+      <kbd>Leertaste</kbd> Start/Pause · <kbd>1</kbd>–<kbd>4</kbd> Spur würfeln · <kbd>Shift</kbd>+<kbd>1</kbd>–<kbd>4</kbd> Spur festhalten · <kbd>0</kbd> alles würfeln · <kbd>Z</kbd> zurück · <kbd>M</kbd> merken ·
       <kbd>↑</kbd> <kbd>↓</kbd> Energie<br />
       Medientasten, auch wenn der Tab im Hintergrund ist: Play/Pause · Weiter würfelt alles, was nicht gehalten ist · Zurück holt den Groove vor dem letzten Würfeln wieder
     </p>
 
     <footer>{{ versionLabel() }}</footer>
+    </div>
+
+    <aside class="logbook" aria-label="Logbuch">
+      <h2>Logbuch</h2>
+      <p v-if="saveFailed" class="warning">Der Browser hat das Speichern abgelehnt. Was du jetzt merkst, ist nach dem Schließen der Seite weg.</p>
+      <template v-for="section in sections" :key="section.id">
+        <h3>{{ section.title }}</h3>
+        <p v-if="!section.entries.length" class="empty">{{ section.empty }}</p>
+        <ul v-else>
+          <li v-for="(entry, index) in section.entries" :key="`${entry.at}-${index}`">
+            <button type="button" class="entry" @click="recall(entry)">
+              <span>{{ when(entry.at) }} · {{ entry.name }}</span>
+              <small>{{ chordsOf(entry) }}</small>
+            </button>
+            <button type="button" class="forget" :aria-label="`${entry.name} löschen`" @click="forget(section.id, entry)">×</button>
+          </li>
+        </ul>
+      </template>
+    </aside>
   </main>
 </template>

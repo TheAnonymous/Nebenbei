@@ -20,10 +20,31 @@ body {
 
 main {
   box-sizing: border-box;
-  max-width: 920px;
+  max-width: 1280px;
   min-height: 100vh;
   margin: 0 auto;
   padding: 40px 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 40px;
+  align-content: start;
+}
+
+/* On a laptop screen the logbook stands beside the tracks. */
+@media (min-width: 1100px) {
+  main {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+
+  .logbook {
+    position: sticky;
+    top: 40px;
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+  }
+}
+
+.player {
   display: grid;
   gap: 28px;
   align-content: start;
@@ -231,6 +252,74 @@ input[type="range"] {
   color: var(--dim);
   font-size: 13px;
   line-height: 2;
+}
+
+.logbook {
+  align-self: start;
+}
+
+h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+h3 {
+  margin: 20px 0 8px;
+  color: var(--dim);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.empty,
+.warning {
+  margin: 0;
+  color: var(--dim);
+  font-size: 14px;
+}
+
+.warning {
+  margin-top: 12px;
+  color: var(--drums);
+}
+
+.logbook ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.logbook li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.entry {
+  display: grid;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  text-align: left;
+}
+
+.entry small {
+  overflow: hidden;
+  color: var(--dim);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forget {
+  align-self: center;
+  padding: 2px 9px;
+  border-color: transparent;
+  background: none;
+  color: var(--dim);
+  font-size: 16px;
 }
 
 footer {
