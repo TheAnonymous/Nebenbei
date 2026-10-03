@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch, watchEffect } from "vue";
 import type { Effects } from "./audio/effects";
-import { DEFAULT_EFFECTS, EFFECT_RANGES } from "./audio/effects";
+import { DEFAULT_EFFECTS, EFFECT_RANGES, MOVE_NAMES } from "./audio/effects";
 import { Engine } from "./audio/engine";
+import { GROUPS, KITS, PATCHES } from "./audio/instruments";
 import { noted, stripOf } from "./day";
 import type { Entry } from "./logbook";
 import { loadDay, loadLogbook, loadSession, saveDay, saveLogbook, saveSession } from "./logbook";
 import { mediaKeysPlaying, setUpMediaKeys } from "./media-keys";
 import type { Groove, TrackId } from "./music/groove";
-import { BASS_STEPS, chordName, DRUM_STEPS, DRUM_VOICES, feelOf, grooveName, LOOP_STEPS, MODES, mutate, plays, roll, rollGroove, SOUNDS, STAB_STEPS, TRACKS } from "./music/groove";
+import { BASS_STEPS, chordName, DRUM_STEPS, DRUM_VOICES, feelOf, grooveName, LOOP_STEPS, MODES, mutate, nextInstrument, plays, roll, rollGroove, STAB_STEPS, TRACKS } from "./music/groove";
 import { versionLabel } from "./version";
 import { ROWS, startVisual } from "./visual";
 
@@ -28,6 +29,9 @@ const energy = ref(session?.energy ?? 5);
 /** The mood slider. The groove follows it on the next bar line, and it follows the groove when one comes back from the logbook. */
 const mood = ref(groove.value.chords.mode);
 const effects = reactive<Effects>(session?.effects ?? { ...DEFAULT_EFFECTS });
+const dj = ref(session?.dj ?? false);
+/** What the DJ does right now, as the page says it. */
+const djMove = ref(MOVE_NAMES.ruhe);
 const sky = ref<HTMLCanvasElement | null>(null);
 const volume = ref(session?.volume ?? 80);
 const playing = ref(false);
@@ -43,13 +47,14 @@ const engine = new Engine(groove.value);
 watch(energy, (value) => (engine.energy = value / MAX_ENERGY), { immediate: true });
 watch(volume, (value) => (engine.volume = value / 100), { immediate: true });
 watch(effects, (value) => (engine.effects = value), { deep: true, immediate: true });
+watch(dj, (on) => (engine.dj = on), { immediate: true });
 watch(groove, (value) => (mood.value = value.chords.mode));
 watch(mood, (mode) => {
   if (mode === groove.value.chords.mode) return;
   onBarLine(() => show({ ...groove.value, chords: { ...groove.value.chords, mode } }, ["chords"]));
 });
 watchEffect(() => {
-  if (!saveSession({ groove: groove.value, energy: energy.value, volume: volume.value, held: [...held.value], effects: { ...effects } })) saveFailed.value = true;
+  if (!saveSession({ groove: groove.value, energy: energy.value, volume: volume.value, held: [...held.value], effects: { ...effects }, dj: dj.value })) saveFailed.value = true;
 });
 watch(logbook, (value) => {
   if (!saveLogbook(value)) saveFailed.value = true;
@@ -150,10 +155,30 @@ function bringBack(source: Groove): void {
   show(next, free);
 }
 
-/** The next instrument of a track, from the very next note. */
+/** Puts an instrument on a track, from the very next note. */
+function setSound(track: TrackId, sound: string): void {
+  groove.value = engine.groove = { ...groove.value, sounds: { ...groove.value.sounds, [track]: sound } };
+}
+
+/** The next of the instruments that suit the track. */
 function cycleSound(track: TrackId): void {
-  const sounds = { ...groove.value.sounds, [track]: (groove.value.sounds[track] + 1) % SOUNDS[track].length };
-  groove.value = engine.groove = { ...groove.value, sounds };
+  setSound(track, nextInstrument(track, groove.value.sounds[track]));
+}
+
+/** The menu of a track: the kits for the drums, every instrument in its group for the others. */
+const KIT_MENU = [{ group: "Kits", options: Object.entries(KITS).map(([id, kit]) => ({ id, name: kit.name })) }];
+const INSTRUMENT_MENU = GROUPS.map((group) => ({
+  group,
+  options: Object.entries(PATCHES)
+    .filter(([, patch]) => patch.group === group)
+    .map(([id, patch]) => ({ id, name: patch.name })),
+}));
+
+function chooseSound(track: TrackId, event: Event): void {
+  const menu = event.target as HTMLSelectElement;
+  setSound(track, menu.value);
+  // Back to the page's keys: the arrows are energy and mood again, not the menu.
+  menu.blur();
 }
 
 function recall(entry: Entry): void {
@@ -185,6 +210,8 @@ function toggleHold(track: TrackId): void {
 const heads: (HTMLElement | null)[] = [];
 const glows: (HTMLElement | null)[] = [];
 const playButton = ref<HTMLElement | null>(null);
+/** The dots on the effect sliders that show where the DJ has them. */
+const djDots: (HTMLElement | null)[] = [];
 const keepElement = (list: (HTMLElement | null)[], index: number) => (element: unknown): void => {
   list[index] = element instanceof HTMLElement ? element : null;
 };
@@ -195,6 +222,14 @@ function follow(): void {
   // Each line is a sixty-fourth of its lane wide, so its own width is one sixteenth.
   for (const head of heads) if (head) head.style.transform = `translateX(${Math.max(0, position) * 100}%)`;
   step.value = Math.floor(position);
+  const mix = engine.heardMix();
+  if (mix && dj.value) {
+    EFFECT_CONTROLS.forEach(({ id }, index) => {
+      const [low, high] = EFFECT_RANGES[id];
+      djDots[index]?.style.setProperty("--at", ((mix.effects[id] - low) / (high - low)).toFixed(4));
+    });
+    djMove.value = MOVE_NAMES[mix.move];
+  }
   frame = requestAnimationFrame(follow);
 }
 
@@ -221,6 +256,8 @@ function setPlaying(on: boolean): void {
 function onKey(event: KeyboardEvent): void {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   const target = event.target instanceof HTMLElement ? event.target.tagName : "";
+  // An open instrument menu keeps its keys.
+  if (target === "SELECT") return;
   const energyStep = event.key === "ArrowUp" ? 1 : event.key === "ArrowDown" ? -1 : 0;
   const moodStep = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
   // The physical keys, so Shift+1 and the row below the digits work on every keyboard layout.
@@ -239,6 +276,7 @@ function onKey(event: KeyboardEvent): void {
   else if (digit === "0") rollTracks(TRACKS);
   else if (event.key.toLowerCase() === "z") back();
   else if (event.key.toLowerCase() === "m") keep();
+  else if (event.code === "KeyD") dj.value = !dj.value;
   // A focused button is pressed by the space bar itself.
   else if (event.code === "Space" && target !== "BUTTON") void toggle();
   else return;
@@ -284,7 +322,7 @@ function across<T extends { step: number }>(items: T[], length: number): T[] {
 const lanes = computed(() => {
   const { drums, bass, chords, melody, sounds } = groove.value;
   const on = (item: { min: number }, track: TrackId): boolean => plays(item, track, energy.value / MAX_ENERGY, chords.mode);
-  const lane = (id: TrackId, name: string, rows: number, marks: Mark[], labels: string[] = []) => ({ id, name, rows, marks, labels, sound: SOUNDS[id][sounds[id]]! });
+  const lane = (id: TrackId, name: string, rows: number, marks: Mark[], labels: string[] = []) => ({ id, name, rows, marks, labels, sound: sounds[id], menu: id === "drums" ? KIT_MENU : INSTRUMENT_MENU });
   return [
     lane("drums", "Drums", DRUM_VOICES.length, across(drums, DRUM_STEPS).map((hit) => ({ step: hit.step, len: 1, row: DRUM_VOICES.indexOf(hit.voice), on: on(hit, "drums") }))),
     lane("bass", "Bass", 5, across(bass, BASS_STEPS).map((note) => ({ step: note.step, len: note.len, row: 4 - note.tone, on: on(note, "bass") }))),
@@ -345,9 +383,11 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
       <div v-for="(lane, index) in lanes" :key="lane.id" class="track" :class="[lane.id, { changed: changed.has(lane.id), held: held.has(lane.id) }]">
         <span class="name">
           <span><kbd>{{ index + 1 }}</kbd> {{ lane.name }}</span>
-          <button type="button" class="sound" :aria-label="`${lane.name}: Instrument ${lane.sound}, zum nächsten wechseln`" @click="cycleSound(lane.id)">
-            <span :key="lane.sound" class="swap">{{ lane.sound }}</span>
-          </button>
+          <select :key="lane.sound" class="sound swap" :value="lane.sound" :aria-label="`Instrument der Spur ${lane.name}`" @change="chooseSound(lane.id, $event)">
+            <optgroup v-for="group in lane.menu" :key="group.group" :label="group.group">
+              <option v-for="option in group.options" :key="option.id" :value="option.id">{{ option.name }}</option>
+            </optgroup>
+          </select>
         </span>
         <div class="lane-box">
           <span :ref="keepElement(glows, index)" class="glow" />
@@ -383,11 +423,18 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
       </label>
     </div>
 
-    <fieldset class="effects">
-      <legend>Effekte</legend>
-      <label v-for="control in EFFECT_CONTROLS" :key="control.id" :title="control.hint">
+    <fieldset class="effects" :class="{ dj }">
+      <legend>
+        Effekte
+        <button type="button" class="dj-switch" :aria-pressed="dj" title="Der DJ spielt die Effekte um deine Einstellungen herum, ein Griff pro vier Takte" @click="dj = !dj">DJ <kbd>D</kbd></button>
+        <span v-if="dj && playing" :key="djMove" class="move swap">{{ djMove }}</span>
+      </legend>
+      <label v-for="(control, index) in EFFECT_CONTROLS" :key="control.id" :title="control.hint">
         <span>{{ control.name }} <output>{{ effects[control.id] }}</output></span>
-        <input v-model.number="effects[control.id]" type="range" :min="EFFECT_RANGES[control.id][0]" :max="EFFECT_RANGES[control.id][1]" step="1" />
+        <span class="slider">
+          <input v-model.number="effects[control.id]" type="range" :min="EFFECT_RANGES[control.id][0]" :max="EFFECT_RANGES[control.id][1]" step="1" />
+          <i :ref="keepElement(djDots, index)" class="dj-dot" />
+        </span>
       </label>
       <label class="volume">
         <span>Lautstärke</span>
@@ -414,7 +461,7 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
     </section>
 
     <p class="keys">
-      <kbd>Leertaste</kbd> Start/Pause · <kbd>1</kbd>–<kbd>4</kbd> Spur würfeln · <kbd>Shift</kbd>+<kbd>1</kbd>–<kbd>4</kbd> Spur festhalten · <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> Instrument wechseln · <kbd>0</kbd> alles würfeln · <kbd>Z</kbd> zurück · <kbd>M</kbd> merken ·
+      <kbd>Leertaste</kbd> Start/Pause · <kbd>1</kbd>–<kbd>4</kbd> Spur würfeln · <kbd>Shift</kbd>+<kbd>1</kbd>–<kbd>4</kbd> Spur festhalten · <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> Instrument wechseln · <kbd>0</kbd> alles würfeln · <kbd>Z</kbd> zurück · <kbd>M</kbd> merken · <kbd>D</kbd> DJ ·
       <kbd>↑</kbd> <kbd>↓</kbd> Energie · <kbd>←</kbd> <kbd>→</kbd> Stimmung<br />
       Medientasten, auch wenn der Tab im Hintergrund ist: Play/Pause · Weiter würfelt alles, was nicht gehalten ist · Zurück holt den Groove vor dem letzten Würfeln wieder
     </p>

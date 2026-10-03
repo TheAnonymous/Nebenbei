@@ -25,3 +25,74 @@ export function readEffects(value: unknown): Effects {
   }
   return effects;
 }
+
+/*
+ * The DJ: when it is on, it plays the effects around your settings, one move
+ * per pass through the four bars. A move is a curve over the pass; it starts
+ * where you left the sliders, and the next pass starts there again.
+ */
+
+export const MOVES = ["ruhe", "filterfahrt", "anlauf", "echowurf", "hallwelle", "leiern", "pumpen"] as const;
+export type Move = (typeof MOVES)[number];
+
+export const MOVE_NAMES: Record<Move, string> = {
+  ruhe: "lässt laufen",
+  filterfahrt: "Filterfahrt",
+  anlauf: "Anlauf",
+  echowurf: "Echo-Wurf",
+  hallwelle: "Hallwelle",
+  leiern: "Bandleiern",
+  pumpen: "Pumpen",
+};
+
+const towards = (from: number, to: number, amount: number): number => from + (to - from) * amount;
+
+/** The effects a move makes of your settings, `progress` (0..1) through the pass. */
+export function djEffects(base: Effects, move: Move, progress: number): Effects {
+  // Up and down again within the pass, gently at both ends.
+  const swell = Math.sin(Math.PI * progress) ** 2;
+  // Only over the last half: slow, then faster, and gone at the next pass.
+  const build = Math.max(0, (progress - 0.5) / 0.5) ** 2;
+  switch (move) {
+    case "filterfahrt":
+      return { ...base, filter: Math.min(base.filter, towards(base.filter, -4, swell)) };
+    case "anlauf":
+      return { ...base, filter: Math.max(base.filter, towards(base.filter, 4, build)), hall: Math.max(base.hall, towards(base.hall, 8, build)) };
+    case "echowurf":
+      // The last two beats into the echo; its tail rings on into the next pass.
+      return { ...base, echo: Math.max(base.echo, towards(base.echo, 10, Math.min(1, Math.max(0, (progress - 0.86) / 0.04)))) };
+    case "hallwelle":
+      return { ...base, hall: Math.max(base.hall, towards(base.hall, 10, swell)) };
+    case "leiern":
+      return { ...base, tape: Math.max(base.tape, towards(base.tape, 10, swell)) };
+    case "pumpen":
+      return { ...base, pump: Math.max(base.pump, towards(base.pump, 9, swell)) };
+    default:
+      return base;
+  }
+}
+
+/**
+ * The move for the next pass. A calm groove is mostly left alone; the more
+ * energy, the more the DJ does, and the more it builds up and pumps. A move
+ * never comes twice in a row.
+ */
+export function pickMove(previous: Move, energy: number, rng: () => number): Move {
+  const weights: Record<Move, number> = {
+    ruhe: 1 + 3 * (1 - energy),
+    filterfahrt: 1.2,
+    anlauf: 0.4 + 1.6 * energy,
+    echowurf: 1,
+    hallwelle: 1,
+    leiern: 0.6,
+    pumpen: 0.2 + 1.4 * energy,
+  };
+  if (previous !== "ruhe") weights[previous] = 0;
+  const total = MOVES.reduce((sum, move) => sum + weights[move], 0);
+  let left = rng() * total;
+  for (const move of MOVES) {
+    left -= weights[move];
+    if (left < 0) return move;
+  }
+  return "ruhe";
+}

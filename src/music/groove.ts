@@ -1,3 +1,5 @@
+import { FITS, KITS, PATCHES } from "../audio/instruments";
+
 /*
  * The groove: four tracks that breed themselves. Everything here is plain
  * data and pure functions; the engine plays it, the page shows it.
@@ -63,16 +65,25 @@ export interface Groove {
   /** One chord per bar, one bar of stab rhythm. */
   chords: Harmony & { bars: Chord[]; stabs: Stab[] };
   melody: Note[];
-  /** The instrument of each track: an index into SOUNDS. */
-  sounds: Record<TrackId, number>;
+  /** The instrument of each track: a kit for the drums, an instrument (audio/instruments.ts) for the others. */
+  sounds: Record<TrackId, string>;
 }
 
-/** The instruments to choose from; the engine makes the sounds. */
-export const SOUNDS: Record<TrackId, readonly string[]> = {
-  drums: ["Staubig", "Knackig", "Weich"],
-  bass: ["Sub", "Rund", "Zupf"],
-  chords: ["Säge", "E-Piano", "Orgel"],
-  melody: ["Glocke", "Flöte", "Zupf"],
+/** Everything that can play a track: the kits for the drums, every instrument for the others. */
+export const instrumentsFor = (track: TrackId): readonly string[] => (track === "drums" ? Object.keys(KITS) : Object.keys(PATCHES));
+
+/** The instrument after `current` among those that suit the track best. */
+export function nextInstrument(track: TrackId, current: string): string {
+  const fits = FITS[track];
+  return fits[(fits.indexOf(current) + 1) % fits.length]!;
+}
+
+/** Before the instrument library, each track had three instruments, stored by number. */
+const FIRST_SOUNDS: Record<TrackId, readonly string[]> = {
+  drums: ["staubig", "knackig", "weich"],
+  bass: ["sub", "rund", "kantig"],
+  chords: ["saege", "epiano", "orgel"],
+  melody: ["glocke", "floete", "gezupft"],
 };
 
 const pick = <T>(rng: Rng, items: readonly T[]): T => items[Math.floor(rng() * items.length)]!;
@@ -350,7 +361,7 @@ function rollChords(rng: Rng): Groove["chords"] {
 // ---- The whole groove ------------------------------------------------------
 
 export function rollGroove(rng: Rng): Groove {
-  const sound = (track: TrackId): number => Math.floor(rng() * SOUNDS[track].length);
+  const sound = (track: TrackId): string => pick(rng, FITS[track]);
   return {
     drums: rollDrums(rng),
     bass: rollNotes(rng, BASS, STEPS_PER_BAR, 1),
@@ -387,7 +398,8 @@ const listOf = (value: unknown, item: (fields: Fields) => boolean, least = 0): b
 /**
  * Checks something read from storage and returns it as a groove the engine
  * can play and the mutations can work on, or null. Grooves stored before
- * moods and instruments existed get the ones they were played with.
+ * moods and instruments existed get the ones they were played with, and
+ * instruments stored by number get the instrument that number meant.
  */
 export function readGroove(value: unknown): Groove | null {
   if (value === null || typeof value !== "object") return null;
@@ -396,9 +408,10 @@ export function readGroove(value: unknown): Groove | null {
   const { key, mode, bars, stabs } = chords as Fields;
   const line = (notes: unknown, steps: number): boolean =>
     listOf(notes, (note) => whole(note.step, 0, steps - 1) && whole(note.len, 1, steps) && whole(note.tone, 0, 7) && unit(note.vel) && unit(note.min), 1);
-  const sound = (track: TrackId): number => {
-    const index = sounds !== null && typeof sounds === "object" ? (sounds as Fields)[track] : 0;
-    return whole(index, 0, SOUNDS[track].length - 1) ? index : 0;
+  const sound = (track: TrackId): string => {
+    const stored = sounds !== null && typeof sounds === "object" ? (sounds as Fields)[track] : undefined;
+    if (typeof stored === "string" && instrumentsFor(track).includes(stored)) return stored;
+    return FIRST_SOUNDS[track][whole(stored, 0, 2) ? stored : 0]!;
   };
   const playable =
     listOf(drums, (hit) => whole(hit.step, 0, DRUM_STEPS - 1) && DRUM_VOICES.includes(hit.voice as DrumVoice) && unit(hit.vel) && unit(hit.min)) &&

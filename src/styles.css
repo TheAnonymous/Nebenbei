@@ -194,8 +194,15 @@ kbd {
   font-weight: 600;
 }
 
-/* The instrument of the track; a click takes the next one. */
+/* The instrument of the track, as a menu. */
 .sound {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  cursor: pointer;
+  font: inherit;
+  max-width: 100%;
   padding: 2px 10px;
   color: var(--color);
   font-size: 13px;
@@ -350,8 +357,68 @@ button.waiting {
 }
 
 .effects legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 0 6px;
   color: var(--dim);
+}
+
+.dj-switch {
+  padding: 2px 10px;
+  font-size: 13px;
+}
+
+.dj-switch[aria-pressed="true"] {
+  border-color: var(--chords);
+  background: rgb(143 179 154 / 0.2);
+  color: var(--ink);
+  box-shadow: 0 0 14px -2px var(--chords);
+}
+
+.move {
+  color: var(--chords);
+}
+
+/* While the DJ plays, the frame breathes a little. */
+.effects.dj {
+  border-color: rgb(143 179 154 / 0.45);
+  animation: breathe 4s ease-in-out infinite alternate;
+}
+
+@keyframes breathe {
+  to {
+    box-shadow: 0 0 22px -6px var(--chords);
+  }
+}
+
+.slider {
+  position: relative;
+  display: block;
+}
+
+.slider input {
+  display: block;
+}
+
+/* Where the DJ has the effect right now; the thumb stays where you set it. A thumb is about 16 pixels wide. */
+.dj-dot {
+  position: absolute;
+  top: 50%;
+  left: calc(8px + (100% - 16px) * var(--at, 0));
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 0 10px 2px var(--chords);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+
+.effects.dj .dj-dot {
+  opacity: 1;
 }
 
 .effects input {

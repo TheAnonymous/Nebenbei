@@ -1,18 +1,22 @@
 import type { DrumVoice, Feel, Groove, TrackId } from "../music/groove";
 import { BASS_STEPS, chordPitches, DRUM_STEPS, feelOf, LOOP_STEPS, plays, STAB_STEPS, STEPS_PER_BAR, tonePitch } from "../music/groove";
 import { Clock } from "./clock";
-import type { Effects } from "./effects";
-import { DEFAULT_EFFECTS } from "./effects";
+import type { Effects, Move } from "./effects";
+import { DEFAULT_EFFECTS, djEffects, pickMove } from "./effects";
+import type { Patch } from "./instruments";
+import { KITS, PATCHES } from "./instruments";
 import { playThroughSilentSwitch } from "./ios-audio";
 
 /*
  * Plays the groove as Lo-Fi-House: sixteenths are scheduled a little ahead
  * on the audio clock, from a worker's heartbeat, so the music keeps going
- * while the tab is in the background. Everything is synthesised; every track
- * has three instruments to choose from. The whole mix runs through a tape (a
- * wobbling delay, saturation, a dull lowpass that the energy opens) and a
- * filter for the hand. The mood sets the feel: tempo, swing, brightness,
- * space; it changes on the bar line, and the tempo glides there.
+ * while the tab is in the background. Everything is synthesised: the drums
+ * from a kit, the other tracks from any instrument of the library. The whole
+ * mix runs through a tape (a wobbling delay, saturation, a dull lowpass that
+ * the energy opens) and a filter for the hand. The mood sets the feel:
+ * tempo, swing, brightness, space; it changes on the bar line, and the tempo
+ * glides there. The effects are set anew on every sixteenth, so the DJ can
+ * play them from here, in time, even while the tab is in the background.
  */
 
 const LOOKAHEAD_SECONDS = 0.2;
@@ -30,12 +34,8 @@ export interface Pulse {
   bar?: boolean;
 }
 
-/** The drum kits (Staubig, Knackig, Weich): fall and length of the kick, colour and length of the noises. */
-const KITS = [
-  { kick: { from: 125, to: 45, drop: 0.1, attack: 0.002, decay: 0.25, level: 0.6, click: 0 }, clap: { tone: 1300, decay: 0.2, level: 1 }, hat: { tone: 7500, decay: 0.05, level: 0.35 }, open: { decay: 0.3, level: 0.24 }, rim: { tone: 900, level: 0.35 } },
-  { kick: { from: 190, to: 50, drop: 0.05, attack: 0.001, decay: 0.2, level: 0.62, click: 0.2 }, clap: { tone: 1900, decay: 0.16, level: 1.15 }, hat: { tone: 9000, decay: 0.035, level: 0.42 }, open: { decay: 0.22, level: 0.28 }, rim: { tone: 1250, level: 0.4 } },
-  { kick: { from: 95, to: 42, drop: 0.12, attack: 0.006, decay: 0.3, level: 0.52, click: 0 }, clap: { tone: 950, decay: 0.09, level: 0.6 }, hat: { tone: 6000, decay: 0.07, level: 0.22 }, open: { decay: 0.35, level: 0.14 }, rim: { tone: 620, level: 0.25 } },
-] as const;
+/** How loud an instrument is on each track, against one melody note: a bass note, a chord of four. */
+const ROLE_LEVEL = { bass: 1.6, chords: 0.4, melody: 1 } as const;
 
 interface Graph {
   /** Where the drums go: straight onto the tape. */
@@ -65,6 +65,8 @@ export class Engine {
   /** Called when a bar (0..3 of the loop) is about to be scheduled, a moment before it sounds: the place for changes. */
   onBar: ((bar: number) => void) | null = null;
   playing = false;
+  /** Whether the DJ plays the effects. It starts its first move on the next pass through the four bars. */
+  dj = false;
 
   private context: AudioContext | null = null;
   private graph: Graph | null = null;
@@ -72,7 +74,7 @@ export class Engine {
   private nextStep = 0;
   /** When the next sixteenth sounds, and the last few that were scheduled, to tell where the music is. */
   private nextTime = 0;
-  private scheduled: { index: number; time: number }[] = [];
+  private scheduled: { index: number; time: number; effects: Effects; move: Move }[] = [];
   private feel: Feel;
   private tempo: number;
   /** Seconds per sixteenth at the tempo of the moment. */
@@ -81,7 +83,10 @@ export class Engine {
   /** The energy the running bar was started with: instruments come and go on the bar line. */
   private barEnergy = 0.5;
   private volumeNow = 0.8;
+  /** Your settings, and what plays on the sixteenth being scheduled: the same, or what the DJ makes of them. */
   private effectsNow: Effects = { ...DEFAULT_EFFECTS };
+  private live: Effects = { ...DEFAULT_EFFECTS };
+  private move: Move = "ruhe";
   private pulses: Pulse[] = [];
 
   constructor(public groove: Groove) {
@@ -100,9 +105,9 @@ export class Engine {
     if (this.context && this.graph) this.graph.master.gain.setTargetAtTime(value, this.context.currentTime, 0.03);
   }
 
+  /** Takes effect from the next sixteenth that is scheduled, a moment later. */
   set effects(value: Effects) {
     this.effectsNow = { ...value };
-    this.applyEffects(0.08);
   }
 
   /** Starts or pauses the music. The first call must come from a click: browsers only allow sound after one. */
@@ -111,7 +116,6 @@ export class Engine {
       playThroughSilentSwitch();
       this.context = new AudioContext({ latencyHint: "playback" });
       this.graph = this.build(this.context);
-      this.applyEffects(0);
       this.nextTime = this.context.currentTime + 0.1;
     }
     // The audio clock stands still while suspended, so a pause picks up exactly where it stopped.
@@ -129,12 +133,13 @@ export class Engine {
 
   /** Where in the loop the music is right now, in sixteenths with a fraction (0 up to 64), or -1 before the first start. */
   position(): number {
-    const now = this.heardTime();
-    for (let at = this.scheduled.length - 1; at >= 0; at -= 1) {
-      const { index, time } = this.scheduled[at]!;
-      if (time <= now) return index + Math.min(0.999, (now - time) / this.stepSeconds);
-    }
-    return -1;
+    const heard = this.heard();
+    return heard ? heard.index + Math.min(0.999, (this.heardTime() - heard.time) / this.stepSeconds) : -1;
+  }
+
+  /** The effects that sound right now, and the DJ's move. */
+  heardMix(): { effects: Effects; move: Move } | null {
+    return this.heard() ?? null;
   }
 
   /** Hands out everything that has sounded since the last call, for the picture. */
@@ -148,6 +153,13 @@ export class Engine {
   dispose(): void {
     this.clock.dispose();
     void this.context?.close();
+  }
+
+  /** The sixteenth that sounds right now. */
+  private heard(): (typeof this.scheduled)[number] | undefined {
+    const now = this.heardTime();
+    for (let at = this.scheduled.length - 1; at >= 0; at -= 1) if (this.scheduled[at]!.time <= now) return this.scheduled[at];
+    return undefined;
   }
 
   /** Where the listener is: the audio clock minus what is still on its way to the speaker. */
@@ -174,10 +186,13 @@ export class Engine {
       this.feel = feelOf(this.groove.chords.mode);
       this.applyFeel(time);
     }
+    if (index === 0) this.move = this.dj ? pickMove(this.move, this.barEnergy, Math.random) : "ruhe";
     // The tempo glides to the mood's within about a bar.
     this.tempo += (this.feel.tempo - this.tempo) * 0.15;
     this.stepSeconds = 15 / this.tempo;
-    this.scheduled = [...this.scheduled.slice(-15), { index, time }];
+    this.live = this.dj ? djEffects(this.effectsNow, this.move, index / LOOP_STEPS) : this.effectsNow;
+    this.mix(this.live, time);
+    this.scheduled = [...this.scheduled.slice(-15), { index, time, effects: this.live, move: this.dj ? this.move : "ruhe" }];
     if (!audible) return;
 
     const { drums, bass, chords, melody } = this.groove;
@@ -198,18 +213,18 @@ export class Engine {
     for (const note of bass) {
       if (!due(note, "bass", BASS_STEPS)) continue;
       const pitch = tonePitch(chords, chord, note.tone, BASS_LOW);
-      this.bass(pitch, note.len, note.vel, at);
+      this.play("bass", [pitch], note.len, note.vel, at, energy);
       this.pulse({ time: at, track: "bass", vel: note.vel, pitch });
     }
     for (const stab of chords.stabs) {
       if (!due(stab, "chords", STAB_STEPS)) continue;
-      this.stab(chordPitches(chords, chord), stab.len, at, energy);
+      this.play("chords", chordPitches(chords, chord), stab.len, 1, at, energy);
       this.pulse({ time: at, track: "chords", vel: 0.8 });
     }
     for (const note of melody) {
       if (!due(note, "melody", LOOP_STEPS)) continue;
       const pitch = tonePitch(chords, chord, note.tone, this.feel.melodyLow);
-      this.lead(pitch, note.len, note.vel, at);
+      this.play("melody", [pitch], note.len, note.vel, at, energy);
       this.pulse({ time: at, track: "melody", vel: note.vel, pitch });
     }
   }
@@ -224,17 +239,17 @@ export class Engine {
 
   private drum(voice: DrumVoice, vel: number, time: number): void {
     const { drums, music, room } = this.graph!;
-    const kit = KITS[this.groove.sounds.drums]!;
+    const kit = KITS[this.groove.sounds.drums] ?? KITS.staubig!;
     switch (voice) {
       case "kick": {
         const { from, to, drop, attack, decay, level, click } = kit.kick;
-        const osc = this.osc("sine", from, time, 0.6);
+        const osc = this.osc("sine", from, time, Math.max(0.6, 2.5 * decay));
         osc.frequency.setValueAtTime(from, time);
         osc.frequency.exponentialRampToValueAtTime(to, time + drop);
         osc.connect(this.envelope(time, vel * level, attack, 0.06, decay)).connect(drums);
         if (click) this.noise(time, vel * click, "highpass", 2500, 0.0005, 0.012);
         // The pumping: everything else ducks under the kick and swells back.
-        music.gain.setTargetAtTime(1 - 0.1 * this.effectsNow.pump * vel, time, 0.005);
+        music.gain.setTargetAtTime(1 - 0.1 * this.live.pump * vel, time, 0.005);
         music.gain.setTargetAtTime(1, time + 0.04, 0.1);
         break;
       }
@@ -263,94 +278,6 @@ export class Engine {
     }
   }
 
-  private bass(pitch: number, len: number, vel: number, time: number): void {
-    const { music } = this.graph!;
-    const frequency = hz(pitch);
-    const hold = len * this.stepSeconds * 0.9;
-    switch (this.groove.sounds.bass) {
-      case 1: {
-        // Rund: a saw behind a low filter that closes a little after the attack.
-        const filter = this.filter("lowpass", frequency * 3, 2);
-        filter.frequency.setValueAtTime(frequency * 7, time);
-        filter.frequency.setTargetAtTime(frequency * 3, time, 0.1);
-        this.osc("sawtooth", frequency, time, hold + 0.4).connect(filter).connect(this.envelope(time, vel * 0.3, 0.008, hold, 0.12)).connect(music);
-        break;
-      }
-      case 2: {
-        // Zupf: a short square pluck.
-        const filter = this.filter("lowpass", frequency * 2, 1);
-        filter.frequency.setValueAtTime(frequency * 12, time);
-        filter.frequency.setTargetAtTime(frequency * 2, time, 0.05);
-        this.osc("square", frequency, time, 0.7).connect(filter).connect(this.envelope(time, vel * 0.26, 0.003, 0.02, 0.22 + 0.04 * len)).connect(music);
-        break;
-      }
-      default: {
-        // Sub: a sine, with a little triangle on top so small speakers can still tell the note.
-        const amp = this.envelope(time, vel * 0.33, 0.01, hold, 0.12);
-        this.osc("sine", frequency, time, hold + 0.4).connect(amp);
-        const edge = this.context!.createGain();
-        edge.gain.value = 0.35;
-        this.osc("triangle", frequency, time, hold + 0.4).connect(edge).connect(amp);
-        amp.connect(music);
-      }
-    }
-  }
-
-  /** A short chord. */
-  private stab(pitches: number[], len: number, time: number, energy: number): void {
-    const context = this.context!;
-    const { music, room } = this.graph!;
-    const hold = len * this.stepSeconds;
-    let amp: GainNode;
-    switch (this.groove.sounds.chords) {
-      case 1:
-        // E-Piano: two sines per note, one bending the other; bright at the attack, mellow after.
-        amp = this.envelope(time, 0.07, 0.004, hold, 0.5);
-        for (const pitch of pitches) {
-          const frequency = hz(pitch);
-          const carrier = this.osc("sine", frequency, time, hold + 1.2);
-          const bite = context.createGain();
-          bite.gain.setValueAtTime(frequency * (1 + 2 * energy) * this.feel.brightness, time);
-          bite.gain.setTargetAtTime(frequency * 0.3, time, 0.12);
-          this.osc("sine", frequency, time, hold + 1.2).connect(bite).connect(carrier.frequency);
-          carrier.connect(amp);
-        }
-        break;
-      case 2: {
-        // Orgel: three drawbars per note, on at once and off at once.
-        amp = this.envelope(time, 0.033, 0.003, hold, 0.08);
-        const filter = this.filter("lowpass", (1200 + 4000 * energy) * this.feel.brightness, 0.7);
-        for (const pitch of pitches) {
-          for (const [harmonic, level] of [[1, 1], [2, 0.6], [3, 0.3]] as const) {
-            const drawbar = context.createGain();
-            drawbar.gain.value = level;
-            this.osc("sine", hz(pitch) * harmonic, time, hold + 0.4).connect(drawbar).connect(filter);
-          }
-        }
-        filter.connect(amp);
-        break;
-      }
-      default: {
-        // Säge: two detuned saws per note behind a lowpass that the energy opens.
-        const cutoff = (500 + 2600 * energy) * this.feel.brightness;
-        const filter = this.filter("lowpass", cutoff, 1.5);
-        filter.frequency.setValueAtTime(cutoff * 1.8, time);
-        filter.frequency.setTargetAtTime(cutoff, time, 0.08);
-        for (const pitch of pitches) {
-          for (const detune of [-7, 7]) {
-            const osc = this.osc("sawtooth", hz(pitch), time, hold + 0.8);
-            osc.detune.value = detune;
-            osc.connect(filter);
-          }
-        }
-        amp = this.envelope(time, 0.075, 0.006, hold, 0.3);
-        filter.connect(amp);
-      }
-    }
-    amp.connect(music);
-    amp.connect(room);
-  }
-
   /** The chord of the bar as a soft bed; it steps back as the energy rises and the stabs take over. */
   private pad(pitches: number[], time: number, energy: number): void {
     const { music, room } = this.graph!;
@@ -367,48 +294,74 @@ export class Engine {
     amp.connect(room);
   }
 
-  /** A melody note, into the room and the echo. */
-  private lead(pitch: number, len: number, vel: number, time: number): void {
+  /** A note or a chord on a track, played by the track's instrument. The bass stays dry, chords go into the room, the melody into the echo too. */
+  private play(track: keyof typeof ROLE_LEVEL, pitches: number[], len: number, vel: number, time: number, energy: number): void {
     const context = this.context!;
     const { music, room, echo } = this.graph!;
-    const frequency = hz(pitch);
-    let amp: GainNode;
-    switch (this.groove.sounds.melody) {
-      case 1: {
-        // Flöte: a soft attack and a vibrato that comes in late.
-        const hold = Math.max(len, 2) * this.stepSeconds;
-        amp = this.envelope(time, vel * 0.2, 0.05, hold, 0.3);
-        const osc = this.osc("triangle", frequency, time, hold + 0.9);
-        const vibrato = context.createGain();
-        vibrato.gain.setValueAtTime(0, time);
-        vibrato.gain.linearRampToValueAtTime(frequency * 0.006, time + 0.3);
-        this.osc("sine", 5.2, time, hold + 0.9).connect(vibrato).connect(osc.frequency);
-        osc.connect(this.filter("lowpass", 2400, 0.7)).connect(amp);
-        break;
+    const patch: Patch = PATCHES[this.groove.sounds[track]] ?? PATCHES.sub!;
+    const { attack, hold = len * this.stepSeconds * 0.9, release } = patch.amp;
+    const seconds = Math.max(attack, hold) + 3 * release + 0.05;
+    const amp = this.envelope(time, patch.level * ROLE_LEVEL[track] * vel, attack, hold, release);
+    let input: AudioNode = amp;
+
+    if (patch.filter) {
+      const { type = "lowpass", to, open = 0, peak = 1, decay = 0.1, q, relative } = patch.filter;
+      const settle = (to + open * energy) * (relative ? hz(pitches[0]!) : 1) * this.feel.brightness;
+      const filter = this.filter(type, Math.min(18000, settle), q);
+      if (peak !== 1) {
+        filter.frequency.setValueAtTime(Math.min(18000, settle * peak), time);
+        filter.frequency.setTargetAtTime(Math.min(18000, settle), time, decay);
       }
-      case 2: {
-        // Zupf: a plucked string.
-        amp = this.envelope(time, vel * 0.2, 0.002, 0.02, 0.35 + 0.05 * len);
-        const filter = this.filter("lowpass", frequency * 1.5, 2);
-        filter.frequency.setValueAtTime(frequency * 8, time);
-        filter.frequency.setTargetAtTime(frequency * 1.5, time, 0.06);
-        this.osc("sawtooth", frequency, time, 1.6).connect(filter).connect(amp);
-        break;
+      filter.connect(amp);
+      input = filter;
+    }
+
+    // Vibrato bends every oscillator of the note at once, through their detune.
+    let vibrato: GainNode | null = null;
+    if (patch.vibrato) {
+      vibrato = context.createGain();
+      vibrato.gain.setValueAtTime(0, time);
+      vibrato.gain.linearRampToValueAtTime(patch.vibrato.depth, time + Math.max(0.01, patch.vibrato.delay));
+      this.osc("sine", patch.vibrato.rate, time, seconds).connect(vibrato);
+    }
+
+    for (const pitch of pitches) {
+      const frequency = hz(pitch);
+      let bend: GainNode | null = null;
+      if (patch.fm) {
+        const { ratio, from, open = 0, to, decay } = patch.fm;
+        bend = context.createGain();
+        bend.gain.setValueAtTime(frequency * (from + open * energy) * this.feel.brightness, time);
+        bend.gain.setTargetAtTime(frequency * to, time, decay);
+        this.osc("sine", frequency * ratio, time, seconds).connect(bend);
       }
-      default: {
-        // Glocke: a small FM bell.
-        amp = this.envelope(time, vel * 0.18, 0.004, 0.02, 0.5 + 0.1 * len);
-        const carrier = this.osc("sine", frequency, time, 2);
-        const brightness = context.createGain();
-        brightness.gain.setValueAtTime(frequency * 1.2, time);
-        brightness.gain.setTargetAtTime(0, time, 0.08);
-        this.osc("sine", frequency * 2, time, 2).connect(brightness).connect(carrier.frequency);
-        carrier.connect(amp);
+      for (const wave of patch.waves) {
+        const osc = this.osc(wave.type, frequency * (wave.ratio ?? 1), time, seconds);
+        osc.detune.value = wave.detune ?? 0;
+        bend?.connect(osc.frequency);
+        vibrato?.connect(osc.detune);
+        if (wave.level === undefined) {
+          osc.connect(input);
+        } else {
+          const level = context.createGain();
+          level.gain.value = wave.level;
+          osc.connect(level).connect(input);
+        }
       }
     }
-    amp.connect(music);
-    amp.connect(room);
-    amp.connect(echo);
+
+    let output: AudioNode = amp;
+    if (patch.tremolo) {
+      const tremolo = context.createGain();
+      tremolo.gain.value = 1 - patch.tremolo.depth / 2;
+      const depth = context.createGain();
+      depth.gain.value = patch.tremolo.depth / 2;
+      this.osc("sine", patch.tremolo.rate, time, seconds).connect(depth).connect(tremolo.gain);
+      output = amp.connect(tremolo);
+    }
+    output.connect(music);
+    if (track !== "bass") output.connect(room);
+    if (track === "melody") output.connect(echo);
   }
 
   /** An oscillator that starts at `time` and is gone `seconds` later. */
@@ -454,14 +407,13 @@ export class Engine {
 
   // ---- The fixed part of the sound -------------------------------------------
 
-  /** Brings the effect controls to the sound, gliding there within about `seconds`. */
-  private applyEffects(seconds: number): void {
-    const { context, graph } = this;
-    if (!context || !graph) return;
-    const { hall, echo, tape, filter } = this.effectsNow;
+  /** Brings the effects to the sound from the sixteenth at `time`, gliding there within it. */
+  private mix(effects: Effects, time: number): void {
+    const graph = this.graph;
+    if (!graph) return;
+    const { hall, echo, tape, filter } = effects;
     const glide = (param: AudioParam, value: number): void => {
-      if (seconds) param.setTargetAtTime(value, context.currentTime, seconds);
-      else param.value = value;
+      param.setTargetAtTime(value, time, this.stepSeconds / 3);
     };
     // A sad mood widens the room and lets the echo run longer.
     glide(graph.room.gain, 0.09 * hall * this.feel.space);
@@ -484,8 +436,6 @@ export class Engine {
     graph.tone.frequency.setTargetAtTime(toneCutoff(this.energyNow) * this.feel.brightness, time, 0.4);
     graph.drums.gain.setTargetAtTime(this.feel.punch, time, 0.3);
     graph.echoTime.setTargetAtTime((15 / this.feel.tempo) * 3, time, 0.5);
-    graph.room.gain.setTargetAtTime(0.09 * this.effectsNow.hall * this.feel.space, time, 0.5);
-    graph.echoFeedback.gain.setTargetAtTime(Math.min(0.75, (0.25 + 0.04 * this.effectsNow.echo) * (0.7 + 0.3 * this.feel.space)), time, 0.5);
   }
 
   private build(context: AudioContext): Graph {

@@ -134,13 +134,27 @@ test("rolls, holds, goes back, keeps grooves and survives a reload", async ({ pa
   await page.keyboard.press("ArrowUp");
   await expect(page.locator(".energy:not(.mood) output")).toHaveText("6");
 
-  // Q takes the next instrument of the drums and changes nothing else; the effects are sliders.
+  // Q takes the next kit of the drums and changes nothing else; any instrument can go on any other track.
   const drumSound = page.locator(".track.drums .sound");
-  const firstKit = await drumSound.textContent();
+  const firstKit = await drumSound.inputValue();
   await page.keyboard.press("q");
-  await expect(drumSound).not.toHaveText(firstKit!);
-  const secondKit = await drumSound.textContent();
+  await expect(drumSound).not.toHaveValue(firstKit);
+  const secondKit = await drumSound.inputValue();
   expect(await lanes(page)).toEqual(second);
+  const bassSound = page.locator(".track.bass .sound");
+  expect(await bassSound.locator("option").count()).toBeGreaterThanOrEqual(20);
+  await bassSound.selectOption({ label: "Vibraphon" });
+  await expect(bassSound).toHaveValue("vibraphon");
+  // The menu lets go of the keyboard: the arrows are the energy again.
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator(".energy:not(.mood) output")).toHaveText("5");
+  await page.keyboard.press("ArrowUp");
+
+  // D lets the DJ play the effects.
+  const dj = page.getByRole("button", { name: /^DJ/ });
+  await page.keyboard.press("d");
+  await expect(dj).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".effects")).toHaveClass(/dj/);
   const hall = page.locator(".effects label", { hasText: "Hall" });
   await hall.locator("input").evaluate((input: HTMLInputElement) => {
     input.value = "9";
@@ -153,7 +167,9 @@ test("rolls, holds, goes back, keeps grooves and survives a reload", async ({ pa
   expect(await lanes(page)).toEqual(second);
   await expect(page.locator(".energy:not(.mood) output")).toHaveText("6");
   await expect(page.locator(".track.drums")).toHaveClass(/held/);
-  await expect(drumSound).toHaveText(secondKit!);
+  await expect(drumSound).toHaveValue(secondKit);
+  await expect(bassSound).toHaveValue("vibraphon");
+  await expect(dj).toHaveAttribute("aria-pressed", "true");
   await expect(hall.locator("output")).toHaveText("9");
   await expect(entries(page, "Gemerkt")).toHaveCount(1);
   await expect(entries(page, "Verlauf")).toHaveCount(1);

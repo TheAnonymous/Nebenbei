@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
 import type { Groove, Note, Rng } from "../src/music/groove";
-import { BASS_STEPS, chordName, chordPitches, DRUM_STEPS, feelOf, keyName, LOOP_STEPS, MODES, mutate, plays, roll, rollGroove, SOUNDS, STAB_STEPS, tonePitch, TRACKS } from "../src/music/groove";
+import { BASS_STEPS, chordName, chordPitches, DRUM_STEPS, feelOf, keyName, instrumentsFor, LOOP_STEPS, MODES, mutate, nextInstrument, plays, roll, rollGroove, STAB_STEPS, tonePitch, TRACKS } from "../src/music/groove";
 
 /** mulberry32: the same seed gives the same music. */
 function seeded(seed: number): Rng {
@@ -43,7 +43,7 @@ function assertPlayable(groove: Groove): void {
   assert(stabs.length >= 1 && stabs.length <= 5, `${stabs.length} stabs`);
   assert.equal(new Set(stabs.map((stab) => stab.step)).size, stabs.length);
   for (const stab of stabs) assert(stab.step >= 0 && stab.step < STAB_STEPS);
-  for (const track of TRACKS) assert(groove.sounds[track] >= 0 && groove.sounds[track] < SOUNDS[track].length, `sound of ${track}`);
+  for (const track of TRACKS) assert(instrumentsFor(track).includes(groove.sounds[track]), `sound of ${track}`);
   for (const chord of bars) {
     const pitches = chordPitches(groove.chords, chord);
     // Never the diminished chord: its root and fifth would be six semitones apart.
@@ -84,7 +84,7 @@ it("rolls one track and leaves held tracks alone", () => {
     expect(rolled[track]).not.toEqual(groove[track]);
   }
   // A roll keeps the mood and the instruments.
-  const happy = { ...groove, chords: { ...groove.chords, mode: 3 }, sounds: { drums: 2, bass: 1, chords: 2, melody: 1 } };
+  const happy = { ...groove, chords: { ...groove.chords, mode: 3 }, sounds: { drums: "tr909", bass: "reese", chords: "chor", melody: "kalimba" } };
   const rerolled = roll(happy, "chords", rng);
   expect(rerolled.chords.mode).toBe(3);
   expect(rerolled.sounds).toEqual(happy.sounds);
@@ -96,6 +96,25 @@ it("rolls one track and leaves held tracks alone", () => {
   expect(bred.drums).toEqual(groove.drums);
   expect(bred.chords).toEqual(groove.chords);
   expect(bred.bass).not.toEqual(groove.bass);
+});
+
+it("offers many instruments, and steps through those that suit a track", () => {
+  expect(instrumentsFor("drums").length).toBeGreaterThanOrEqual(6);
+  expect(instrumentsFor("melody").length).toBeGreaterThanOrEqual(20);
+  // Every instrument can go on bass, chords and melody alike.
+  expect(instrumentsFor("bass")).toEqual(instrumentsFor("chords"));
+  for (const track of TRACKS) {
+    const seen = new Set<string>();
+    let sound = instrumentsFor(track)[0]!;
+    for (let step = 0; step < 40; step += 1) {
+      sound = nextInstrument(track, sound);
+      expect(instrumentsFor(track)).toContain(sound);
+      seen.add(sound);
+    }
+    expect(seen.size).toBeGreaterThanOrEqual(6);
+  }
+  // From an instrument that does not suit the track, Q starts with the first that does.
+  expect(nextInstrument("bass", "kalimba")).toBe("sub");
 });
 
 it("turns chords and tones into the right pitches and names", () => {

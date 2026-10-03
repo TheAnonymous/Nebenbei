@@ -30,6 +30,8 @@ export interface Session {
   volume: number;
   held: TrackId[];
   effects: Effects;
+  /** Whether the DJ plays the effects. */
+  dj: boolean;
 }
 
 const LOGBOOK_KEY = "nebenbei.logbuch";
@@ -62,7 +64,7 @@ export function parseLogbook(json: string | null): Logbook {
 }
 
 export function parseSession(json: string | null): Session | null {
-  const { groove: stored, energy, volume, held, effects } = parse(json);
+  const { groove: stored, energy, volume, held, effects, dj } = parse(json);
   const groove = readGroove(stored);
   if (!groove) return null;
   return {
@@ -71,6 +73,7 @@ export function parseSession(json: string | null): Session | null {
     volume: typeof volume === "number" && volume >= 0 && volume <= 100 ? volume : 80,
     held: Array.isArray(held) ? TRACKS.filter((track) => held.includes(track)) : [],
     effects: readEffects(effects),
+    dj: dj === true,
   };
 }
 

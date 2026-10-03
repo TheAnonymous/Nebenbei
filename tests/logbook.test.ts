@@ -28,9 +28,12 @@ it("plays grooves from before moods and instruments as they sounded then", () =>
   const groove = bredGroove();
   const { key, bars, stabs } = groove.chords;
   const old = { drums: groove.drums, bass: groove.bass, chords: { key, bars, stabs }, melody: groove.melody };
-  expect(readGroove(old)).toEqual({ ...old, chords: { key, mode: 0, bars, stabs }, sounds: { drums: 0, bass: 0, chords: 0, melody: 0 } });
-  // An instrument or mood that does not exist falls back the same way.
-  expect(readGroove({ ...groove, chords: { ...groove.chords, mode: 9 }, sounds: { drums: 7, bass: "tuba" } })).toMatchObject({ chords: { mode: 0 }, sounds: { drums: 0, bass: 0, chords: 0, melody: 0 } });
+  const first = { drums: "staubig", bass: "sub", chords: "saege", melody: "glocke" };
+  expect(readGroove(old)).toEqual({ ...old, chords: { key, mode: 0, bars, stabs }, sounds: first });
+  // Instruments stored by number, from before the library: the second of each track then.
+  expect(readGroove({ ...groove, sounds: { drums: 1, bass: 1, chords: 1, melody: 1 } })?.sounds).toEqual({ drums: "knackig", bass: "rund", chords: "epiano", melody: "floete" });
+  // An instrument or mood that does not exist falls back the same way; a kit cannot play the bass.
+  expect(readGroove({ ...groove, chords: { ...groove.chords, mode: 9 }, sounds: { drums: 7, bass: "tuba", chords: "tr808", melody: "chor" } })).toMatchObject({ chords: { mode: 0 }, sounds: { ...first, melody: "chor" } });
 });
 
 it("reads the effect controls back, each within its range", () => {
@@ -58,7 +61,8 @@ it("reads the running groove back, or starts fresh", () => {
   expect(parseSession(null)).toBeNull();
   expect(parseSession(JSON.stringify({ groove: {}, energy: 3 }))).toBeNull();
   const effects = { hall: 1, echo: 2, tape: 3, pump: 4, filter: 5 };
-  expect(parseSession(JSON.stringify({ groove, energy: 3, volume: 55, held: ["bass", "tuba"], effects }))).toEqual({ groove, energy: 3, volume: 55, held: ["bass"], effects });
+  expect(parseSession(JSON.stringify({ groove, energy: 3, volume: 55, held: ["bass", "tuba"], effects, dj: false }))).toEqual({ groove, energy: 3, volume: 55, held: ["bass"], effects, dj: false });
   // Odd settings fall back to the defaults; the groove still counts.
-  expect(parseSession(JSON.stringify({ groove, energy: 99, volume: "laut" }))).toEqual({ groove, energy: 5, volume: 80, held: [], effects: readEffects(null) });
+  expect(parseSession(JSON.stringify({ groove, energy: 99, volume: "laut" }))).toEqual({ groove, energy: 5, volume: 80, held: [], effects: readEffects(null), dj: false });
+  expect(parseSession(JSON.stringify({ groove, dj: true }))?.dj).toBe(true);
 });
