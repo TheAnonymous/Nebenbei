@@ -323,7 +323,7 @@ let stopVisual = (): void => undefined;
 onMounted(() => {
   setUpApp();
   if (sky.value) {
-    stopVisual = startVisual(sky.value, () => ({ playing: playing.value, energy: shownEnergy.value, mood: groove.value.chords.mode / (MODES.length - 1), calm: calmSky.value, pulses: () => engine.takePulses() }), glow);
+    stopVisual = startVisual(sky.value, () => ({ playing: playing.value, energy: shownEnergy.value, mood: groove.value.chords.mode / (MODES.length - 1), calm: calmSky.value, open: breakdown.value, pulses: () => engine.takePulses() }), glow);
   }
   window.addEventListener("keydown", onKey);
   setUpMediaKeys({ play: () => setPlaying(true), pause: () => setPlaying(false), next: () => rollTracks(TRACKS), previous: back });

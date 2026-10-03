@@ -61,12 +61,20 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
   ihn in Ruhe; je mehr Energie, desto mehr Anläufe und Pumpen. Ein leuchtender
   Punkt auf jedem Regler zeigt, wo der DJ ihn gerade hat. Er spielt im
   Taktgeber mit und arbeitet deshalb auch, wenn der Tab im Hintergrund liegt.
-- **Der Himmel** hinter der Seite folgt der Musik: vier Lichtbänder, eines pro
-  Spur, die mit ihrer Spur aufleuchten; die Kick schickt ein Glühen von unten,
-  Melodietöne steigen als Lichter auf, Hi-Hats funkeln. Die Stimmung färbt ihn
-  (blaue Nacht bis goldener Abend) und dreht die Lichter um: traurig sinken
-  sie wie Regen, fröhlich steigen sie. Die Energie macht ihn heller und
-  schneller. Er wird höchstens 30-mal pro Sekunde gemalt, pausiert 10-mal.
+- **Der Himmel** hinter der Seite wird auf der Grafikkarte gemalt (WebGL): ein
+  langsam fließender Nebel in vier Farben je Stimmung (Moll eine Nacht mit
+  türkisem Nordlicht, Dorisch blau, Mixolydisch magenta, Dur ein Sonnenuntergang,
+  Lydisch ein goldener Abend unter violettem Himmel), davor vier
+  Nordlicht-Vorhänge, einer pro Spur, mit heller Unterkante und aufsteigenden
+  Strahlen, die mit ihrer Spur aufflammen, gefaltet und in Flecken über den
+  Himmel verteilt. Sterne funkeln mit den Hi-Hats, der ganze Himmel atmet mit
+  der Kick und glüht vom Horizont her, Melodietöne werden zu Lichtern, die
+  traurig sinken und fröhlich steigen, ab und zu fällt eine Sternschnuppe. In
+  der Pause der Drums (Gezeiten) öffnet sich der Himmel ein wenig. Feines Korn
+  verhindert Farbstufen, eine Vignette und eine weiche Tonkurve halten ihn dunkel
+  genug für die Seite. Er wird in halber Auflösung höchstens 30-mal pro Sekunde
+  gemalt, pausiert 10-mal (gemessen: 1,4 ms je Bild auf einer integrierten
+  AMD-Grafik); ohne WebGL bleibt der schlichte Hintergrund.
 - **Ruhiger Himmel** (`H`): zum Konzentrieren langsamer und sanfter, ohne
   Lichter, Funken und Blitze auf den Drums, 20 Bilder pro Sekunde.
 - **Die Seite bewegt sich mit:** Die Abspiellinie gleitet, Noten leuchten auf,
