@@ -38,7 +38,7 @@ export interface Note {
   min: number;
 }
 
-/** `degree` is the step of the minor scale the chord stands on, `inversion` (0..2) how high it is voiced. */
+/** `degree` is the step of the scale the chord stands on, `inversion` (0..2) how high it is voiced. */
 export interface Chord {
   degree: number;
   inversion: number;
@@ -51,56 +51,95 @@ export interface Stab {
   min: number;
 }
 
+/** `key` is the pitch class of the key note (0 = C), `mode` the mood: an index into MODES, from sad to happy. */
+export interface Harmony {
+  key: number;
+  mode: number;
+}
+
 export interface Groove {
   drums: Hit[];
   bass: Note[];
-  /** `key` is the pitch class of the minor key (0 = C); one chord per bar, one bar of stab rhythm. */
-  chords: { key: number; bars: Chord[]; stabs: Stab[] };
+  /** One chord per bar, one bar of stab rhythm. */
+  chords: Harmony & { bars: Chord[]; stabs: Stab[] };
   melody: Note[];
+  /** The instrument of each track: an index into SOUNDS. */
+  sounds: Record<TrackId, number>;
 }
+
+/** The instruments to choose from; the engine makes the sounds. */
+export const SOUNDS: Record<TrackId, readonly string[]> = {
+  drums: ["Staubig", "Knackig", "Weich"],
+  bass: ["Sub", "Rund", "Zupf"],
+  chords: ["Säge", "E-Piano", "Orgel"],
+  melody: ["Glocke", "Flöte", "Zupf"],
+};
 
 const pick = <T>(rng: Rng, items: readonly T[]): T => items[Math.floor(rng() * items.length)]!;
 const between = (rng: Rng, low: number, high: number): number => Math.round((low + rng() * (high - low)) * 100) / 100;
 
 // ---- Pitches ---------------------------------------------------------------
 
-const MINOR = [0, 2, 3, 5, 7, 8, 10];
+/** The moods from sad to happy. Each one raises a single note of the scale before it, so a step on the slider is a small step in the music. */
+export const MODES = [
+  { name: "Moll", scale: [0, 2, 3, 5, 7, 8, 10] },
+  { name: "Dorisch", scale: [0, 2, 3, 5, 7, 9, 10] },
+  { name: "Mixolydisch", scale: [0, 2, 4, 5, 7, 9, 10] },
+  { name: "Dur", scale: [0, 2, 4, 5, 7, 9, 11] },
+  { name: "Lydisch", scale: [0, 2, 4, 6, 7, 9, 11] },
+] as const;
 
-/** Semitones above the key note for a step of the minor scale (7 is the octave). */
-const scaleStep = (step: number): number => 12 * Math.floor(step / 7) + MINOR[((step % 7) + 7) % 7]!;
+/** Semitones above the key note for a step of the mode's scale (7 is the octave). */
+const scaleStep = (mode: number, step: number): number => 12 * Math.floor(step / 7) + MODES[mode]!.scale[((step % 7) + 7) % 7]!;
 
 /** Moves a pitch by octaves into the twelve semitones from `low` upwards. */
 const fold = (pitch: number, low: number): number => low + ((((pitch - low) % 12) + 12) % 12);
 
+/**
+ * The scale step a chord really stands on. Every mode has one diminished
+ * chord, and it grates; the chord a third below shares three of its four
+ * notes and plays in its place.
+ */
+const rootStep = (mode: number, chord: Chord): number => (scaleStep(mode, chord.degree + 4) - scaleStep(mode, chord.degree) === 6 ? (chord.degree + 5) % 7 : chord.degree);
+
 /** A ninth only where it lies a whole tone above the root; a semitone above would grate. */
-const hasNinth = (chord: Chord): boolean => chord.ninth && scaleStep(chord.degree + 1) - scaleStep(chord.degree) === 2;
+function hasNinth(mode: number, chord: Chord): boolean {
+  const root = rootStep(mode, chord);
+  return chord.ninth && scaleStep(mode, root + 1) - scaleStep(mode, root) === 2;
+}
 
 /**
  * The MIDI pitches of a chord, all folded into one octave so that changes
  * move the voices as little as possible. With a ninth the root is left to
  * the bass.
  */
-export function chordPitches(key: number, chord: Chord): number[] {
+export function chordPitches({ key, mode }: Harmony, chord: Chord): number[] {
   const low = 52 + [0, 3, 5][chord.inversion]!;
-  return (hasNinth(chord) ? [2, 4, 6, 8] : [0, 2, 4, 6]).map((third) => fold(key + scaleStep(chord.degree + third), low)).sort((a, b) => a - b);
+  const root = rootStep(mode, chord);
+  return (hasNinth(mode, chord) ? [2, 4, 6, 8] : [0, 2, 4, 6]).map((third) => fold(key + scaleStep(mode, root + third), low)).sort((a, b) => a - b);
 }
 
 /** The MIDI pitch of a bass or melody note over a chord; the chord's root lies in the octave from `low`. */
-export function tonePitch(key: number, chord: Chord, tone: number, low: number): number {
-  const root = scaleStep(chord.degree);
-  return fold(key + root, low) + scaleStep(chord.degree + 2 * (tone % 4)) - root + 12 * Math.floor(tone / 4);
+export function tonePitch({ key, mode }: Harmony, chord: Chord, tone: number, low: number): number {
+  const step = rootStep(mode, chord);
+  const root = scaleStep(mode, step);
+  return fold(key + root, low) + scaleStep(mode, step + 2 * (tone % 4)) - root + 12 * Math.floor(tone / 4);
 }
 
-// B flat and H as on German lead sheets; sharps in the keys that are written with sharps.
+// B flat and H as on German lead sheets.
 const FLAT_NAMES = ["C", "D♭", "D", "E♭", "E", "F", "G♭", "G", "A♭", "A", "B♭", "H"];
 const SHARP_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "H"];
-/** c sharp, e, f sharp, g sharp, a and b minor. */
-const SHARP_KEYS = [1, 4, 6, 8, 9, 11];
-const QUALITIES = ["m7", "m7♭5", "maj7", "m7", "m7", "maj7", "7"];
+/** How far above the key note the major key with the same notes lies, for each mode. */
+const PARENT_MAJOR = [3, 10, 5, 0, 7];
+/** Whether the key is written with sharps: its notes are those of G, D, A, E or B major. */
+const usesSharps = ({ key, mode }: Harmony): boolean => [7, 2, 9, 4, 11].includes((key + PARENT_MAJOR[mode]!) % 12);
 
-export function chordName(key: number, chord: Chord): string {
-  const quality = QUALITIES[chord.degree]!;
-  return (SHARP_KEYS.includes(key) ? SHARP_NAMES : FLAT_NAMES)[(key + scaleStep(chord.degree)) % 12]! + (hasNinth(chord) ? quality.replace("7", "9") : quality);
+export function chordName(harmony: Harmony, chord: Chord): string {
+  const { key, mode } = harmony;
+  const root = rootStep(mode, chord);
+  const above = (third: number): number => scaleStep(mode, root + third) - scaleStep(mode, root);
+  const quality = above(2) === 3 ? "m" : above(6) === 11 ? "maj" : "";
+  return (usesSharps(harmony) ? SHARP_NAMES : FLAT_NAMES)[(key + scaleStep(mode, root)) % 12]! + quality + (hasNinth(mode, chord) ? "9" : "7");
 }
 
 // ---- Drums -----------------------------------------------------------------
@@ -215,7 +254,7 @@ function rollNotes(rng: Rng, line: Line, motifSteps: number, variations: number)
 
 // ---- Chords ----------------------------------------------------------------
 
-/** Four bars each, as steps of the minor scale (0 = i, 2 = III, 3 = iv, 4 = v, 5 = VI, 6 = VII). */
+/** Four bars each, as steps of the scale (in minor: 0 = i, 2 = III, 3 = iv, 4 = v, 5 = VI, 6 = VII). */
 const PROGRESSIONS: readonly (readonly number[])[] = [
   [0, 5, 2, 6],
   [0, 3, 5, 4],
@@ -248,7 +287,7 @@ function mutateChords(chords: Groove["chords"], rng: Rng): boolean {
   if (kind < 0.6) {
     chord.ninth = !chord.ninth;
     // Only a change if the ninth is really played on this chord.
-    return hasNinth({ ...chord, ninth: true });
+    return hasNinth(chords.mode, { ...chord, ninth: true });
   }
   if (kind < 0.9) {
     if (rng() < 0.5) {
@@ -259,9 +298,7 @@ function mutateChords(chords: Groove["chords"], rng: Rng): boolean {
     return chords.stabs.length < MAX_STABS && addStab(chords.stabs, rng);
   }
   // The chord a third above or below shares three of the four notes.
-  const degree = (chord.degree + pick(rng, [2, 5])) % 7;
-  if (degree === 1) return false; // the diminished chord stays out
-  chord.degree = degree;
+  chord.degree = (chord.degree + pick(rng, [2, 5])) % 7;
   return true;
 }
 
@@ -271,6 +308,8 @@ function rollChords(rng: Rng): Groove["chords"] {
   while (stabs.length < want) addStab(stabs, rng);
   return {
     key: Math.floor(rng() * 12),
+    // A fresh groove starts in minor or dorian, where Lo-Fi-House is at home.
+    mode: Math.floor(rng() * 2),
     bars: pick(rng, PROGRESSIONS).map((degree) => ({ degree, inversion: Math.floor(rng() * 3), ninth: rng() < 0.5 })),
     stabs,
   };
@@ -278,43 +317,73 @@ function rollChords(rng: Rng): Groove["chords"] {
 
 // ---- The whole groove ------------------------------------------------------
 
-const KEY_NAMES = ["c", "cis", "d", "es", "e", "f", "fis", "g", "gis", "a", "b", "h"];
+export function rollGroove(rng: Rng): Groove {
+  const sound = (track: TrackId): number => Math.floor(rng() * SOUNDS[track].length);
+  return {
+    drums: rollDrums(rng),
+    bass: rollNotes(rng, BASS, STEPS_PER_BAR, 1),
+    chords: rollChords(rng),
+    melody: rollNotes(rng, MELODY, 2 * STEPS_PER_BAR, 2),
+    sounds: { drums: sound("drums"), bass: sound("bass"), chords: sound("chords"), melody: sound("melody") },
+  };
+}
+
+const FLAT_KEYS = ["c", "des", "d", "es", "e", "f", "ges", "g", "as", "a", "b", "h"];
+const SHARP_KEYS = ["c", "cis", "d", "dis", "e", "f", "fis", "g", "gis", "a", "ais", "h"];
 const MOODS = ["staubig", "warm", "verschlafen", "samtig", "neblig", "golden", "verregnet", "körnig", "weich", "sonnig", "dämmrig", "milchig", "gemütlich", "verträumt", "rauchig", "mild"];
+
+/** The key as musicians say it: "d-Moll", "d-Dorisch", "D-Dur". */
+export function keyName(harmony: Harmony): string {
+  const name = (usesSharps(harmony) ? SHARP_KEYS : FLAT_KEYS)[harmony.key]!;
+  // Keys with a major third are written with a capital letter.
+  return `${harmony.mode >= 2 ? name[0]!.toUpperCase() + name.slice(1) : name}-${MODES[harmony.mode]!.name}`;
+}
 
 /** A name for the logbook, like "staubig, d-Moll". The same groove always gets the same name. */
 export function grooveName(groove: Groove): string {
   let hash = 0;
   for (const char of JSON.stringify(groove)) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  return `${MOODS[Math.abs(hash) % MOODS.length]}, ${KEY_NAMES[groove.chords.key]}-Moll`;
+  return `${MOODS[Math.abs(hash) % MOODS.length]}, ${keyName(groove.chords)}`;
 }
 
 type Fields = Record<string, unknown>;
-const whole = (value: unknown, low: number, high: number): boolean => Number.isInteger(value) && (value as number) >= low && (value as number) <= high;
+const whole = (value: unknown, low: number, high: number): value is number => Number.isInteger(value) && (value as number) >= low && (value as number) <= high;
 const unit = (value: unknown): boolean => typeof value === "number" && value >= 0 && value <= 1;
 const listOf = (value: unknown, item: (fields: Fields) => boolean, least = 0): boolean =>
   Array.isArray(value) && value.length >= least && value.every((entry) => entry !== null && typeof entry === "object" && item(entry as Fields));
 
-/** Whether something read from storage is a groove the engine can play and the mutations can work on. */
-export function isGroove(value: unknown): value is Groove {
-  if (value === null || typeof value !== "object") return false;
-  const { drums, bass, chords, melody } = value as Fields;
-  if (chords === null || typeof chords !== "object") return false;
-  const { key, bars, stabs } = chords as Fields;
+/**
+ * Checks something read from storage and returns it as a groove the engine
+ * can play and the mutations can work on, or null. Grooves stored before
+ * moods and instruments existed get the ones they were played with.
+ */
+export function readGroove(value: unknown): Groove | null {
+  if (value === null || typeof value !== "object") return null;
+  const { drums, bass, chords, melody, sounds } = value as Fields;
+  if (chords === null || typeof chords !== "object") return null;
+  const { key, mode, bars, stabs } = chords as Fields;
   const line = (notes: unknown, steps: number): boolean =>
     listOf(notes, (note) => whole(note.step, 0, steps - 1) && whole(note.len, 1, steps) && whole(note.tone, 0, 7) && unit(note.vel) && unit(note.min), 1);
-  return (
+  const sound = (track: TrackId): number => {
+    const index = sounds !== null && typeof sounds === "object" ? (sounds as Fields)[track] : 0;
+    return whole(index, 0, SOUNDS[track].length - 1) ? index : 0;
+  };
+  const playable =
     listOf(drums, (hit) => whole(hit.step, 0, DRUM_STEPS - 1) && DRUM_VOICES.includes(hit.voice as DrumVoice) && unit(hit.vel) && unit(hit.min)) &&
     line(bass, BASS_STEPS) &&
     line(melody, LOOP_STEPS) &&
     whole(key, 0, 11) &&
     listOf(bars, (chord) => whole(chord.degree, 0, 6) && whole(chord.inversion, 0, 2) && typeof chord.ninth === "boolean", 4) &&
     (bars as unknown[]).length === 4 &&
-    listOf(stabs, (stab) => whole(stab.step, 0, STAB_STEPS - 1) && whole(stab.len, 1, STAB_STEPS) && unit(stab.min))
-  );
-}
-
-export function rollGroove(rng: Rng): Groove {
-  return { drums: rollDrums(rng), bass: rollNotes(rng, BASS, STEPS_PER_BAR, 1), chords: rollChords(rng), melody: rollNotes(rng, MELODY, 2 * STEPS_PER_BAR, 2) };
+    listOf(stabs, (stab) => whole(stab.step, 0, STAB_STEPS - 1) && whole(stab.len, 1, STAB_STEPS) && unit(stab.min));
+  if (!playable) return null;
+  return {
+    drums: drums as Hit[],
+    bass: bass as Note[],
+    chords: { key: key as number, mode: whole(mode, 0, MODES.length - 1) ? mode : 0, bars: bars as Chord[], stabs: stabs as Stab[] },
+    melody: melody as Note[],
+    sounds: { drums: sound("drums"), bass: sound("bass"), chords: sound("chords"), melody: sound("melody") },
+  };
 }
 
 const MUTATORS: Record<TrackId, (groove: Groove, rng: Rng) => boolean> = {
@@ -324,9 +393,10 @@ const MUTATORS: Record<TrackId, (groove: Groove, rng: Rng) => boolean> = {
   melody: (groove, rng) => mutateNotes(groove.melody, rng, MELODY),
 };
 
-/** Returns a copy of the groove with a fresh pattern on one track. New chords take bass and melody along. */
+/** Returns a copy of the groove with a fresh pattern on one track. New chords take bass and melody along; the mood and the instruments stay. */
 export function roll(groove: Groove, track: TrackId, rng: Rng): Groove {
-  return { ...groove, [track]: rollGroove(rng)[track] };
+  const fresh = rollGroove(rng);
+  return track === "chords" ? { ...groove, chords: { ...fresh.chords, mode: groove.chords.mode } } : { ...groove, [track]: fresh[track] };
 }
 
 /** Returns a copy of the groove with one small change on one of `tracks` (at least one), and says which. */

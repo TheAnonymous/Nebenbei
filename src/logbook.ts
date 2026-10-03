@@ -1,7 +1,9 @@
+import type { Effects } from "./audio/effects";
+import { readEffects } from "./audio/effects";
 import type { Day } from "./day";
 import { parseDay } from "./day";
 import type { Groove, TrackId } from "./music/groove";
-import { isGroove, TRACKS } from "./music/groove";
+import { readGroove, TRACKS } from "./music/groove";
 
 /*
  * What the browser keeps between visits: the groove that is playing, the
@@ -27,6 +29,7 @@ export interface Session {
   energy: number;
   volume: number;
   held: TrackId[];
+  effects: Effects;
 }
 
 const LOGBOOK_KEY = "nebenbei.logbuch";
@@ -42,25 +45,32 @@ function parse(json: string | null): Record<string, unknown> {
   }
 }
 
-const isEntry = (value: unknown): value is Entry => {
-  if (value === null || typeof value !== "object") return false;
-  const { at, name, groove } = value as Record<string, unknown>;
-  return typeof at === "number" && typeof name === "string" && isGroove(groove);
-};
+/** The entries of a stored list that still hold a playable groove. */
+function readEntries(list: unknown): Entry[] {
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((value: unknown) => {
+    if (value === null || typeof value !== "object") return [];
+    const { at, name } = value as Record<string, unknown>;
+    const groove = readGroove((value as Record<string, unknown>).groove);
+    return typeof at === "number" && typeof name === "string" && groove ? [{ at, name, groove }] : [];
+  });
+}
 
 export function parseLogbook(json: string | null): Logbook {
   const { kept, trail } = parse(json);
-  return { kept: Array.isArray(kept) ? kept.filter(isEntry) : [], trail: Array.isArray(trail) ? trail.filter(isEntry) : [] };
+  return { kept: readEntries(kept), trail: readEntries(trail) };
 }
 
 export function parseSession(json: string | null): Session | null {
-  const { groove, energy, volume, held } = parse(json);
-  if (!isGroove(groove)) return null;
+  const { groove: stored, energy, volume, held, effects } = parse(json);
+  const groove = readGroove(stored);
+  if (!groove) return null;
   return {
     groove,
     energy: Number.isInteger(energy) && (energy as number) >= 0 && (energy as number) <= 10 ? (energy as number) : 5,
     volume: typeof volume === "number" && volume >= 0 && volume <= 100 ? volume : 80,
     held: Array.isArray(held) ? TRACKS.filter((track) => held.includes(track)) : [],
+    effects: readEffects(effects),
   };
 }
 

@@ -84,6 +84,21 @@ test("plays by itself, changes without being touched and fills the day strip", a
   // It never gets loud enough to clip.
   expect(await loudest(page)).toBeLessThan(0.99);
 
+  // The sky behind the page moves with the music.
+  const sky = (): Promise<string> => page.locator(".sky").evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
+  const picture = await sky();
+  await expect.poll(sky).not.toBe(picture);
+
+  // The mood slider turns minor into major on the next bar line; the chords get new names.
+  const chords = page.locator(".track.chords .lane");
+  const sad = await chords.textContent();
+  for (let press = 0; press < 4; press += 1) await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".mood output")).toHaveText("Lydisch");
+  await expect(chords).not.toHaveText(sad!, { timeout: 4_000 });
+  await expect(chords).toContainText("maj");
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator(".mood output")).toHaveText("Dur");
+
   await page.keyboard.press("Space");
   await expect(play(page)).toHaveText("Start");
   expect(await page.evaluate(() => navigator.mediaSession.playbackState)).toBe("paused");
@@ -117,13 +132,29 @@ test("rolls, holds, goes back, keeps grooves and survives a reload", async ({ pa
   await page.keyboard.press("m");
   await expect(entries(page, "Gemerkt")).toHaveCount(1);
   await page.keyboard.press("ArrowUp");
-  await expect(page.locator(".energy output")).toHaveText("6");
+  await expect(page.locator(".energy:not(.mood) output")).toHaveText("6");
+
+  // Q takes the next instrument of the drums and changes nothing else; the effects are sliders.
+  const drumSound = page.locator(".track.drums .sound");
+  const firstKit = await drumSound.textContent();
+  await page.keyboard.press("q");
+  await expect(drumSound).not.toHaveText(firstKit!);
+  const secondKit = await drumSound.textContent();
+  expect(await lanes(page)).toEqual(second);
+  const hall = page.locator(".effects label", { hasText: "Hall" });
+  await hall.locator("input").evaluate((input: HTMLInputElement) => {
+    input.value = "9";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(hall.locator("output")).toHaveText("9");
 
   // The page picks up where it stopped.
   await page.reload();
   expect(await lanes(page)).toEqual(second);
-  await expect(page.locator(".energy output")).toHaveText("6");
+  await expect(page.locator(".energy:not(.mood) output")).toHaveText("6");
   await expect(page.locator(".track.drums")).toHaveClass(/held/);
+  await expect(drumSound).toHaveText(secondKit!);
+  await expect(hall.locator("output")).toHaveText("9");
   await expect(entries(page, "Gemerkt")).toHaveCount(1);
   await expect(entries(page, "Verlauf")).toHaveCount(1);
 

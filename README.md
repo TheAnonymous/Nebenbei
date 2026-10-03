@@ -8,8 +8,9 @@ Requests.
 
 ## Stand
 
-Alle vier Bauschritte: **Klang und Selbstlauf, Festhalten und Würfeln, Logbuch,
-Feinschliff.** Die App läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
+Alle vier Bauschritte (Klang und Selbstlauf, Festhalten und Würfeln, Logbuch,
+Feinschliff), dazu Instrumente, Stimmung, Effekte und der Himmel. Die App
+läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
 
 - Start/Pause. Die Musik läuft weiter, wenn der Tab im Hintergrund ist.
 - Alle acht Takte (etwa 16 Sekunden) ändert sich an einer Spur eine
@@ -20,6 +21,24 @@ Feinschliff.** Die App läuft unter <https://musik.jodie-oesterling.de/Nebenbei/
   warten auf mehr Energie. Das Tempo bleibt bei 118 BPM.
 - Bass und Melodie sind relativ zum Akkord ihres Takts notiert und folgen
   jeder Änderung der Akkorde.
+- **Stimmung** (traurig bis fröhlich): fünf Tonleitern von Moll über Dorisch,
+  Mixolydisch und Dur bis Lydisch. Jede Stufe hebt genau einen Ton der
+  Tonleiter, die Akkorde, der Bass und die Melodie gehen mit; gewechselt wird
+  auf dem Taktstrich. Den verminderten Akkord jeder Tonleiter ersetzt der
+  Akkord eine Terz tiefer.
+- **Instrumente:** Jede Spur hat drei zur Wahl (Drums: Staubig, Knackig, Weich;
+  Bass: Sub, Rund, Zupf; Akkorde: Säge, E-Piano, Orgel; Melodie: Glocke, Flöte,
+  Zupf). Ein Klick auf den Namen unter der Spur nimmt das nächste. Stimmung und
+  Instrumente gehören zum Groove: Würfeln lässt sie stehen, das Logbuch merkt
+  sie sich.
+- **Effekte:** Hall, Echo, Band (Leiern, Rauschen, Sättigung), Pumpen (wie tief
+  alles unter der Kick wegtaucht) und ein Filter (links dumpf, rechts dünn,
+  Mitte aus).
+- **Der Himmel** hinter der Seite folgt der Musik: vier Lichtbänder, eines pro
+  Spur, die mit ihrer Spur aufleuchten; die Kick schickt ein Glühen von unten,
+  Melodietöne steigen als Lichter auf, Hi-Hats funkeln. Die Stimmung färbt ihn
+  (blaue Nacht bis goldener Abend), die Energie macht ihn heller und schneller.
+  Wer im System weniger Bewegung eingestellt hat, sieht ihn stehen.
 - **Festhalten:** Eine gehaltene Spur bleibt, wie sie ist: keine Mutation, kein
   Würfeln, kein Zurück.
 - **Würfeln:** Die Spur bekommt ein neues Muster. Läuft die Musik, setzt es am
@@ -34,7 +53,7 @@ Feinschliff.** Die App läuft unter <https://musik.jodie-oesterling.de/Nebenbei/
 - **Heute.** Der Tagesstreifen zeigt den Arbeitstag in Fünf-Minuten-Balken: so
   hoch wie die Energie, mit heller Kappe, wo gewürfelt oder zurückgeholt wurde,
   und rosa, wo ein Groove gemerkt wurde. Er beginnt jeden Tag neu.
-- Der laufende Groove, Energie, Lautstärke, gehaltene Spuren, das Logbuch und
+- Der laufende Groove, Energie, Lautstärke, Effekte, gehaltene Spuren, das Logbuch und
   der Tagesstreifen liegen im Speicher des Browsers (`localStorage`) und
   überstehen das Neuladen. Was von dort zurückkommt, wird vor dem Abspielen
   geprüft.
@@ -44,10 +63,12 @@ Feinschliff.** Die App läuft unter <https://musik.jodie-oesterling.de/Nebenbei/
 | Leertaste | Start / Pause |
 | `1`–`4` | Spur würfeln |
 | `Shift` + `1`–`4` | Spur festhalten / loslassen |
+| `Q` `W` `E` `R` | Instrument der Spur wechseln |
 | `0` | alles würfeln, was nicht gehalten ist |
 | `Z` | zurück |
 | `M` | Groove merken |
 | `↑` / `↓` | Energie |
+| `←` / `→` | Stimmung |
 | Medientaste Play/Pause | Start / Pause, auch bei Tab im Hintergrund |
 | Medientaste Weiter | alles würfeln, was nicht gehalten ist |
 | Medientaste Zurück | zurück |
@@ -66,7 +87,8 @@ mise exec -- npm run verify   # Lint, Typprüfung, Tests, Build, Playwright
 
 - `src/music/groove.ts`: der Groove als Daten, Würfeln und Mutieren (reine
   Funktionen, getestet in `tests/groove.test.ts`).
-- `src/audio/engine.ts`: Taktgeber und Klangerzeugung (Web Audio).
+- `src/audio/engine.ts`: Taktgeber, Instrumente und Effekte (Web Audio).
+- `src/visual.ts`: der Himmel (Canvas).
 - `src/day.ts`: der Tagesstreifen (getestet in `tests/day.test.ts`).
 - `src/logbook.ts`: was der Browser behält, und die Prüfung beim Zurücklesen
   (getestet in `tests/logbook.test.ts`).

@@ -1,9 +1,10 @@
 :root {
   --bg: #1d1814;
-  --panel: #27201b;
-  --line: #3a3029;
+  /* A little of the sky shows through the panels. */
+  --panel: rgb(34 28 26 / 0.78);
+  --line: rgb(255 240 220 / 0.13);
   --ink: #eadfcd;
-  --dim: #9a8c7c;
+  --dim: #b5a898;
   --drums: #d98b5f;
   --bass: #d9b45f;
   --chords: #8fb39a;
@@ -15,7 +16,20 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
+  /* Keeps the words readable where the sky glows behind them. */
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.55);
   font: 16px/1.5 ui-rounded, "Nunito", system-ui, sans-serif;
+}
+
+/* The sky: a small canvas, spread over the window and blurred until it glows. */
+.sky {
+  position: fixed;
+  inset: -48px;
+  z-index: -1;
+  width: calc(100% + 96px);
+  height: calc(100% + 96px);
+  filter: blur(14px);
+  pointer-events: none;
 }
 
 main {
@@ -90,6 +104,7 @@ button:disabled {
 }
 
 .play {
+  text-shadow: none;
   min-width: 140px;
   padding: 12px 28px;
   border: 0;
@@ -124,7 +139,7 @@ kbd {
 
 .track {
   display: grid;
-  grid-template-columns: 104px 1fr 84px 90px;
+  grid-template-columns: 112px 1fr 84px 90px;
   align-items: center;
   gap: 10px;
 }
@@ -135,8 +150,19 @@ kbd {
 .track.melody { --color: var(--melody); }
 
 .name {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
   color: var(--color);
   font-weight: 600;
+}
+
+/* The instrument of the track; a click takes the next one. */
+.sound {
+  padding: 2px 10px;
+  color: var(--color);
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .lane {
@@ -159,9 +185,9 @@ kbd {
 .lane i {
   position: absolute;
   box-sizing: border-box;
-  border: 1px solid var(--panel);
+  border: 1px solid transparent;
   border-radius: 3px;
-  background: var(--color);
+  background: var(--color) padding-box;
   transition: opacity 0.4s;
 }
 
@@ -213,10 +239,47 @@ button.waiting {
   font-size: 14px;
 }
 
+.moods {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+
 .energy,
-.volume {
+.volume,
+.effects label {
   display: grid;
   gap: 6px;
+}
+
+.mood input {
+  accent-color: var(--melody);
+}
+
+.effects {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 18px;
+  margin: 0;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 14px;
+}
+
+.effects legend {
+  padding: 0 6px;
+  color: var(--dim);
+}
+
+.effects input {
+  accent-color: var(--chords);
+}
+
+.effects output {
+  margin-left: 4px;
+  color: var(--dim);
 }
 
 .energy output {
@@ -238,9 +301,7 @@ input[type="range"] {
 }
 
 .volume {
-  max-width: 260px;
   color: var(--dim);
-  font-size: 14px;
 }
 
 .volume input {
