@@ -1,9 +1,11 @@
+import type { Day } from "./day";
+import { parseDay } from "./day";
 import type { Groove, TrackId } from "./music/groove";
 import { isGroove, TRACKS } from "./music/groove";
 
 /*
- * What the browser keeps between visits: the groove that is playing, and the
- * logbook. Everything read back is checked first; an older version or a
+ * What the browser keeps between visits: the groove that is playing, the
+ * logbook and the day strip. Everything read back is checked first; an older version or a
  * broken entry must not stop the music.
  */
 
@@ -29,6 +31,7 @@ export interface Session {
 
 const LOGBOOK_KEY = "nebenbei.logbuch";
 const SESSION_KEY = "nebenbei.jetzt";
+const DAY_KEY = "nebenbei.tag";
 
 function parse(json: string | null): Record<string, unknown> {
   try {
@@ -81,6 +84,8 @@ function write(key: string, value: unknown): boolean {
 
 export const loadLogbook = (): Logbook => parseLogbook(read(LOGBOOK_KEY));
 export const loadSession = (): Session | null => parseSession(read(SESSION_KEY));
-/** Both return whether the browser took it. */
+export const loadDay = (): Day => parseDay(read(DAY_KEY), new Date());
+/** These return whether the browser took it. */
 export const saveLogbook = (logbook: Logbook): boolean => write(LOGBOOK_KEY, logbook);
 export const saveSession = (session: Session): boolean => write(SESSION_KEY, session);
+export const saveDay = (day: Day): boolean => write(DAY_KEY, day);

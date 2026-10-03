@@ -247,6 +247,41 @@ input[type="range"] {
   accent-color: var(--dim);
 }
 
+.day {
+  display: grid;
+  gap: 8px;
+}
+
+.strip {
+  display: grid;
+  align-items: end;
+  gap: 1px;
+  height: 56px;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+/* One bar per five minutes of music, as high as the energy. */
+.strip span {
+  min-width: 0;
+  border-radius: 2px 2px 0 0;
+  background: var(--drums);
+  opacity: 0.75;
+}
+
+/* A light cap where the groove was rolled or brought back. */
+.strip .nudged {
+  box-shadow: inset 0 3px 0 var(--ink);
+  opacity: 1;
+}
+
+.strip .kept {
+  background: var(--melody);
+  opacity: 1;
+}
+
 .keys {
   margin: 0;
   color: var(--dim);

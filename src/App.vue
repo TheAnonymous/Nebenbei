@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch, watchEffect } from "vue";
 import { Engine } from "./audio/engine";
+import { noted, stripOf } from "./day";
 import type { Entry } from "./logbook";
-import { loadLogbook, loadSession, saveLogbook, saveSession } from "./logbook";
+import { loadDay, loadLogbook, loadSession, saveDay, saveLogbook, saveSession } from "./logbook";
 import { mediaKeysPlaying, setUpMediaKeys } from "./media-keys";
 import type { Groove, TrackId } from "./music/groove";
 import { BASS_STEPS, chordName, DRUM_STEPS, DRUM_VOICES, grooveName, LOOP_STEPS, mutate, roll, rollGroove, STAB_STEPS, TRACKS } from "./music/groove";
@@ -19,6 +20,7 @@ const session = loadSession();
 // Shallow refs: grooves and the logbook are replaced as a whole with every change, never edited in place.
 const groove = shallowRef(session?.groove ?? rollGroove(Math.random));
 const logbook = shallowRef(loadLogbook());
+const day = shallowRef(loadDay());
 const energy = ref(session?.energy ?? 5);
 const volume = ref(session?.volume ?? 80);
 const playing = ref(false);
@@ -39,6 +41,18 @@ watchEffect(() => {
 watch(logbook, (value) => {
   if (!saveLogbook(value)) saveFailed.value = true;
 });
+watch(day, (value) => {
+  if (!saveDay(value)) saveFailed.value = true;
+});
+watchEffect(() => {
+  // In a row of tabs the playing one is easy to find.
+  document.title = playing.value ? "▶ Nebenbei" : "Nebenbei";
+});
+
+/** Writes into the day strip: the energy that plays now and, with `event`, a nudge or a kept groove. */
+function note(event?: "nudge" | "keep"): void {
+  day.value = noted(day.value, new Date(), energy.value, event);
+}
 
 let changedTimer = 0;
 function show(next: Groove, tracks: readonly TrackId[]): void {
@@ -61,6 +75,7 @@ engine.onBar = (bar) => {
   atBarLine = [];
   for (const change of changes) change();
   if (bar !== 0) return;
+  note();
   loops += 1;
   const free = TRACKS.filter((track) => !held.value.has(track));
   if (loops === 1 || loops % MUTATE_EVERY_LOOPS !== 1 || !free.length) return;
@@ -82,6 +97,7 @@ function keep(): void {
   const now = JSON.stringify(groove.value);
   if (kept.some((entry) => JSON.stringify(entry.groove) === now)) return;
   logbook.value = { kept: [...kept, entryNow()], trail };
+  note("keep");
 }
 
 function forget(list: "kept" | "trail", entry: Entry): void {
@@ -95,6 +111,7 @@ function rollTracks(tracks: readonly TrackId[]): void {
   for (const track of free) waiting.value.add(track);
   onBarLine(() => {
     leaveTrail();
+    note("nudge");
     let next = groove.value;
     for (const track of free) {
       next = roll(next, track, Math.random);
@@ -115,6 +132,7 @@ function bringBack(source: Groove): void {
 function recall(entry: Entry): void {
   onBarLine(() => {
     leaveTrail();
+    note("nudge");
     bringBack(entry.groove);
   });
 }
@@ -126,6 +144,7 @@ function back(): void {
     const previous = trail.at(-1);
     if (!previous) return;
     logbook.value = { kept, trail: trail.slice(0, -1) };
+    note("nudge");
     bringBack(previous.groove);
   });
 }
@@ -176,7 +195,9 @@ function onKey(event: KeyboardEvent): void {
 
 /** After a mouse click the control lets go of the keyboard, so space stays Start/Pause and the arrows stay the energy. */
 function releaseFocus(event: MouseEvent): void {
-  if (event.detail > 0 && (event.target instanceof HTMLButtonElement || event.target instanceof HTMLInputElement)) event.target.blur();
+  // The click may have hit a label inside the button.
+  const control = event.target instanceof Element ? event.target.closest("button, input") : null;
+  if (event.detail > 0 && control instanceof HTMLElement) control.blur();
 }
 
 onMounted(() => {
@@ -222,6 +243,18 @@ const sections = computed(() => [
   { id: "trail" as const, title: "Verlauf", empty: "Vor jedem Würfeln landet der alte Groove hier.", entries: [...logbook.value.trail].reverse() },
 ]);
 const when = (at: number): string => new Date(at).toLocaleString("de-DE", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
+
+const strip = computed(() => stripOf(day.value));
+const summary = computed(() => {
+  if (!strip.value) return "";
+  const { minutes, nudges, kept } = strip.value;
+  const hours = Math.floor(minutes / 60);
+  return `${hours ? `${hours} h ` : ""}${minutes % 60} min Musik · ${nudges}× eingegriffen · ${kept} gemerkt`;
+});
+const binTitle = (index: number): string => {
+  const bin = strip.value?.bins[index];
+  return bin ? `Energie ${bin.energy}${bin.nudges ? ` · ${bin.nudges}× eingegriffen` : ""}${bin.kept ? ` · ${bin.kept} gemerkt` : ""}` : "";
+};
 const chordsOf = (entry: Entry): string => entry.groove.chords.bars.map((chord) => chordName(entry.groove.chords.key, chord)).join(" · ");
 </script>
 
@@ -268,6 +301,24 @@ const chordsOf = (entry: Entry): string => entry.groove.chords.bars.map((chord) 
       <span>Lautstärke</span>
       <input v-model.number="volume" type="range" min="0" max="100" />
     </label>
+
+    <section class="day" aria-label="Tagesstreifen">
+      <h2>Heute</h2>
+      <p v-if="!strip" class="empty">Hier wächst über den Tag ein Streifen: wie viel Energie lief, wo du eingegriffen und was du dir gemerkt hast.</p>
+      <template v-else>
+        <p class="empty">{{ summary }}</p>
+        <div class="strip" :style="{ gridTemplateColumns: `repeat(${strip.bins.length}, 1fr)` }">
+          <span
+            v-for="(bin, index) in strip.bins"
+            :key="index"
+            :class="{ nudged: bin?.nudges, kept: bin?.kept }"
+            :style="bin ? { height: percent(bin.energy + 2, MAX_ENERGY + 2) } : undefined"
+            :title="binTitle(index)"
+          />
+        </div>
+        <span class="ends"><span>{{ strip.from }}</span><span>{{ strip.to }}</span></span>
+      </template>
+    </section>
 
     <p class="keys">
       <kbd>Leertaste</kbd> Start/Pause · <kbd>1</kbd>–<kbd>4</kbd> Spur würfeln · <kbd>Shift</kbd>+<kbd>1</kbd>–<kbd>4</kbd> Spur festhalten · <kbd>0</kbd> alles würfeln · <kbd>Z</kbd> zurück · <kbd>M</kbd> merken ·

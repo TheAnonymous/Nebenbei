@@ -8,7 +8,8 @@ Requests.
 
 ## Stand
 
-Bauschritte 1 bis 3 von 4: **Klang und Selbstlauf, Festhalten und Würfeln, Logbuch.**
+Alle vier Bauschritte: **Klang und Selbstlauf, Festhalten und Würfeln, Logbuch,
+Feinschliff.** Die App läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
 
 - Start/Pause. Die Musik läuft weiter, wenn der Tab im Hintergrund ist.
 - Alle acht Takte (etwa 16 Sekunden) ändert sich an einer Spur eine
@@ -30,9 +31,13 @@ Bauschritte 1 bis 3 von 4: **Klang und Selbstlauf, Festhalten und Würfeln, Logb
   Taktstrich; gehaltene Spuren bleiben dabei stehen.
 - **Zurück** nimmt das letzte Würfeln oder Zurückholen zurück: Der neueste
   Eintrag des Verlaufs kommt wieder und verlässt den Verlauf.
-- Der laufende Groove, Energie, Lautstärke, gehaltene Spuren und das Logbuch
-  liegen im Speicher des Browsers (`localStorage`) und überstehen das Neuladen.
-  Was von dort zurückkommt, wird vor dem Abspielen geprüft.
+- **Heute.** Der Tagesstreifen zeigt den Arbeitstag in Fünf-Minuten-Balken: so
+  hoch wie die Energie, mit heller Kappe, wo gewürfelt oder zurückgeholt wurde,
+  und rosa, wo ein Groove gemerkt wurde. Er beginnt jeden Tag neu.
+- Der laufende Groove, Energie, Lautstärke, gehaltene Spuren, das Logbuch und
+  der Tagesstreifen liegen im Speicher des Browsers (`localStorage`) und
+  überstehen das Neuladen. Was von dort zurückkommt, wird vor dem Abspielen
+  geprüft.
 
 | Eingabe | Wirkung |
 |---|---|
@@ -51,21 +56,25 @@ Für die Medientasten spielt neben der Musik eine unhörbare Schleife in einem
 Audio-Element mit: Browser geben die Tasten nur an Seiten, die ein
 Medienelement abspielen.
 
-Noch nicht gebaut: Feinschliff (unter anderem der Tagesstreifen) und
-Veröffentlichung auf musik.jodie-oesterling.de (Schritt 4).
-
 ## Entwickeln
 
 ```bash
 mise exec -- npm install
 mise exec -- npm run dev      # http://localhost:5173/Nebenbei/
-mise exec -- npm run verify   # Typprüfung, Tests, Build
+mise exec -- npm run verify   # Lint, Typprüfung, Tests, Build, Playwright
 ```
 
 - `src/music/groove.ts`: der Groove als Daten, Würfeln und Mutieren (reine
   Funktionen, getestet in `tests/groove.test.ts`).
 - `src/audio/engine.ts`: Taktgeber und Klangerzeugung (Web Audio).
+- `src/day.ts`: der Tagesstreifen (getestet in `tests/day.test.ts`).
 - `src/logbook.ts`: was der Browser behält, und die Prüfung beim Zurücklesen
   (getestet in `tests/logbook.test.ts`).
 - `src/media-keys.ts`: Medientasten.
 - `src/App.vue`: die Seite, Tasten, Festhalten, Würfeln, Zurück, Logbuch.
+- `e2e/nebenbei.spec.ts`: die App im Browser, gegen den Build mit der
+  Content-Security-Policy der Live-Seite.
+
+Veröffentlicht wird aus dem Repository `server-infra-nixos`
+(`./scripts/musik-release.sh Nebenbei`); es geht nur hinaus, was auf `main`
+committet ist.
