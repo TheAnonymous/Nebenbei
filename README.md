@@ -1,8 +1,8 @@
 # Nebenbei
 
 Nebenbei ist eine Groovebox für den Laptop-Browser, die beim Arbeiten von
-allein läuft: Lo-Fi-House aus vier Spuren (Drums, Bass, Akkorde, Melodie), die
-sich langsam selbst verändern. Man programmiert nichts, man greift nur ab und
+allein läuft: Lo-Fi-House, Lo-Fi-Hip-Hop, Deep House oder Ambient aus vier bis
+acht Spuren, die sich langsam selbst verändern. Man programmiert nichts, man greift nur ab und
 zu ein. Alles läuft im Browser, ohne Konto, Backend, Samples oder externe
 Requests.
 

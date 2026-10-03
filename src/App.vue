@@ -492,7 +492,7 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
     <div class="player">
     <header>
       <h1>Nebenbei</h1>
-      <p>Lo-Fi-House, der von allein läuft und sich langsam verändert.</p>
+      <p>Musik zum Arbeiten, die von allein läuft und sich langsam verändert.</p>
     </header>
 
     <div class="actions">

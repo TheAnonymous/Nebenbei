@@ -16,7 +16,7 @@ let loop: HTMLAudioElement | null = null;
 
 export function setUpMediaKeys(remote: Remote): void {
   if (!("mediaSession" in navigator)) return;
-  navigator.mediaSession.metadata = new MediaMetadata({ title: "Nebenbei", artist: "Lo-Fi-House, der von allein läuft" });
+  navigator.mediaSession.metadata = new MediaMetadata({ title: "Nebenbei", artist: "Musik zum Arbeiten, die von allein läuft" });
   navigator.mediaSession.setActionHandler("play", remote.play);
   navigator.mediaSession.setActionHandler("pause", remote.pause);
   navigator.mediaSession.setActionHandler("nexttrack", remote.next);
