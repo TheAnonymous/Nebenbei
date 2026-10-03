@@ -13,7 +13,8 @@ function watchErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.stack ?? error.message));
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
+    // A warning counts too when an effect could not load.
+    if (message.type() === "error" || message.text().includes("nicht verfügbar")) errors.push(message.text());
   });
   page.on("requestfailed", (request) => errors.push(`Request fehlgeschlagen: ${request.url()} (${request.failure()?.errorText ?? "?"})`));
   page.on("request", (request) => {
@@ -108,7 +109,7 @@ test("plays by itself, changes without being touched and fills the day strip", a
   for (const input of await page.locator(".level").all()) await slide(input, "100");
   await slide(page.locator(".effects .volume input"), "100");
   await slide(page.locator(".energy:not(.mood) input"), "10");
-  for (const [name, value] of [["Hall", "10"], ["Echo", "10"], ["Band", "10"], ["Pumpen", "0"]] as const) await slide(page.locator(".effects label", { hasText: name }).locator("input"), value);
+  for (const [name, value] of [["Hall", "10"], ["Echo", "10"], ["Band", "10"], ["Pumpen", "0"], ["Schweben", "10"], ["Krümel", "10"], ["Knistern", "10"]] as const) await slide(page.locator(".effects label", { hasText: name }).locator("input"), value);
   for (const [track, sound] of [["drums", "tr909"], ["bass", "sub"], ["chords", "saege"], ["melody", "chor"]] as const) await page.locator(`.track.${track} .sound`).selectOption(sound);
   let loudestAtFull = 0;
   for (let look = 0; look < 30; look += 1) {
@@ -352,5 +353,44 @@ test("up to eight tracks: four more of their own kinds, each with its key, instr
   await page.getByRole("button", { name: "Spur Fläche entfernen" }).click();
   await expect(page.locator(".track")).toHaveCount(7);
   await expect(add).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
+test("Lo-Fi-Hip-Hop: slower boom-bap from the next bar, the harmony kept; and three more effects", async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors = watchErrors(page);
+  await tapSound(page);
+  await page.goto("./");
+  const stored = () => page.evaluate(() => (JSON.parse(localStorage.getItem("nebenbei.jetzt")!) as { groove: { genre: string; chords: { key: number; bars: unknown[] }; drums: { voice: string; step: number }[] } }).groove);
+  const before = await stored();
+  const genre = page.getByRole("combobox", { name: "Genre" });
+  await expect(genre).toHaveValue("house");
+  await expect(page.locator(".mood output")).toContainText(/1[0-2]\d BPM/);
+
+  await genre.selectOption("hiphop");
+  // Paused, it switches at once: boom-bap kicks on one and on the and of three, the same key and chords.
+  await expect.poll(async () => (await stored()).genre).toBe("hiphop");
+  const after = await stored();
+  expect(after.chords.key).toBe(before.chords.key);
+  expect(after.chords.bars).toEqual(before.chords.bars);
+  expect(after.drums.filter((hit) => hit.voice === "kick" && hit.step % 16 === 10)).toHaveLength(2);
+  await expect(page.locator(".mood output")).toContainText(/(7[2-9]|8[0-8]) BPM/);
+  await expect(entries(page, "Verlauf").first()).toContainText("Lo-Fi-House");
+
+  // It plays, with the three new effects up.
+  for (const name of ["Schweben", "Krümel", "Knistern"]) {
+    await page.locator(".effects label", { hasText: name }).locator("input").evaluate((input: HTMLInputElement) => {
+      input.value = "8";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  await expect(page.locator(".effects label")).toHaveCount(9);
+  await page.keyboard.press("Space");
+  await expect.poll(() => loudest(page)).toBeGreaterThan(0.05);
+  await page.keyboard.press("Space");
+
+  await page.reload();
+  await expect(genre).toHaveValue("hiphop");
+  await expect(page.locator(".effects label", { hasText: "Krümel" }).locator("output")).toHaveText("8");
   expect(errors).toEqual([]);
 });

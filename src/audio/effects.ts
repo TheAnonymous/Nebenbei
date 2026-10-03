@@ -4,15 +4,21 @@ export interface Effects {
   hall: number;
   /** The melody's echo: how loud, and how often it repeats. */
   echo: number;
-  /** The tape: wobble, hiss and crackle, saturation. */
+  /** The tape: wobble, hiss, saturation. */
   tape: number;
   /** How deep everything ducks under the kick. */
   pump: number;
   filter: number;
+  /** Schweben: a chorus that spreads chords and melody wide. */
+  chorus: number;
+  /** Krümel: fewer bits and samples, like an old sampler. */
+  crush: number;
+  /** Knistern: the crackle and rumble of a record. */
+  vinyl: number;
 }
 
-export const EFFECT_RANGES: Record<keyof Effects, readonly [number, number]> = { hall: [0, 10], echo: [0, 10], tape: [0, 10], pump: [0, 10], filter: [-5, 5] };
-export const DEFAULT_EFFECTS: Effects = { hall: 4, echo: 4, tape: 5, pump: 6, filter: 0 };
+export const EFFECT_RANGES: Record<keyof Effects, readonly [number, number]> = { hall: [0, 10], echo: [0, 10], tape: [0, 10], pump: [0, 10], filter: [-5, 5], chorus: [0, 10], crush: [0, 10], vinyl: [0, 10] };
+export const DEFAULT_EFFECTS: Effects = { hall: 4, echo: 4, tape: 5, pump: 6, filter: 0, chorus: 2, crush: 0, vinyl: 4 };
 
 /** Effects read from storage: every value that is not a whole number in its range falls back to the default. */
 export function readEffects(value: unknown): Effects {
@@ -32,7 +38,7 @@ export function readEffects(value: unknown): Effects {
  * where you left the sliders, and the next pass starts there again.
  */
 
-export const MOVES = ["ruhe", "filterfahrt", "anlauf", "echowurf", "hallwelle", "leiern", "pumpen"] as const;
+export const MOVES = ["ruhe", "filterfahrt", "anlauf", "echowurf", "hallwelle", "leiern", "pumpen", "kruemel", "schwebe"] as const;
 export type Move = (typeof MOVES)[number];
 
 export const MOVE_NAMES: Record<Move, string> = {
@@ -43,6 +49,8 @@ export const MOVE_NAMES: Record<Move, string> = {
   hallwelle: "Hallwelle",
   leiern: "Bandleiern",
   pumpen: "Pumpen",
+  kruemel: "Krümelwurf",
+  schwebe: "Schwebe",
 };
 
 const towards = (from: number, to: number, amount: number): number => from + (to - from) * amount;
@@ -67,6 +75,11 @@ export function djEffects(base: Effects, move: Move, progress: number): Effects 
       return { ...base, tape: Math.max(base.tape, towards(base.tape, 10, swell)) };
     case "pumpen":
       return { ...base, pump: Math.max(base.pump, towards(base.pump, 9, swell)) };
+    case "kruemel":
+      // The sound crumbles over the last half, and is whole again at the next pass.
+      return { ...base, crush: Math.max(base.crush, towards(base.crush, 7, build)) };
+    case "schwebe":
+      return { ...base, chorus: Math.max(base.chorus, towards(base.chorus, 10, swell)) };
     default:
       return base;
   }
@@ -86,6 +99,8 @@ export function pickMove(previous: Move, energy: number, rng: () => number): Mov
     hallwelle: 1,
     leiern: 0.6,
     pumpen: 0.2 + 1.4 * energy,
+    kruemel: 0.3 + 0.7 * energy,
+    schwebe: 0.9,
   };
   if (previous !== "ruhe") weights[previous] = 0;
   const total = MOVES.reduce((sum, move) => sum + weights[move], 0);

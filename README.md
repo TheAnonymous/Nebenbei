@@ -61,14 +61,25 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
   Grundeinstellungen greift sie praktisch nie (gemessen: 0,01 % der Samples).
   Die Bandsättigung davor deckt das Doppelte des Vollausschlags ab, damit ein
   lauter Mix weich in sie hineinläuft statt an ihr Ende zu stoßen.
+- **Genre:** Lo-Fi-House (104–126 BPM, Kick auf jedem Viertel, kurze
+  Akkord-Stabs) oder Lo-Fi-Hip-Hop (72–88 BPM, starker Swing, Boom-Bap mit Kick
+  auf der Eins und dem Und der Drei und Snare auf zwei und vier, längere
+  Basstöne, gehaltene Nonen-Akkorde, eine sparsamere Melodie, Rhodes und
+  E-Piano). Gewechselt wird am Taktstrich: Drums, Bass, Melodie und der
+  Rhythmus der Akkorde fangen im neuen Stil neu an, mit passenden Instrumenten;
+  Tonart, Stimmung und Akkordfolge bleiben, gehaltene und zusätzliche Spuren
+  auch. Das Logbuch zeigt das Genre jedes Grooves.
 - **Effekte:** Hall, Echo, Band (Leiern, Rauschen, Sättigung), Pumpen (wie tief
-  alles unter der Kick wegtaucht) und ein Filter (links dumpf, rechts dünn,
-  Mitte aus).
+  alles unter der Kick wegtaucht), ein Filter (links dumpf, rechts dünn, Mitte
+  aus), Schweben (ein Chorus, der Akkorde und Melodie breit ins Stereo legt),
+  Krümel (weniger Bits und Samples wie ein alter Sampler, als AudioWorklet)
+  und Knistern (Plattenknistern und Rumpeln).
 - **DJ** (`D`): bedient die Effekte selbst, ein Griff pro Durchlauf der vier
   Takte, immer ausgehend von deinen Reglern: Filterfahrt (dumpf und zurück),
   Anlauf (Hochpass und Hall steigen, beim nächsten Durchlauf ist alles wieder
   da), Echo-Wurf (die letzten Schläge ins Echo), Hallwelle, Bandleiern,
-  Pumpen, oder er lässt es laufen. Je ruhiger der Groove, desto öfter lässt er
+  Pumpen, Krümelwurf (der Klang zerbröselt zum Ende hin), Schwebe, oder er
+  lässt es laufen. Je ruhiger der Groove, desto öfter lässt er
   ihn in Ruhe; je mehr Energie, desto mehr Anläufe und Pumpen. Ein leuchtender
   Punkt auf jedem Regler zeigt, wo der DJ ihn gerade hat. Er spielt im
   Taktgeber mit und arbeitet deshalb auch, wenn der Tab im Hintergrund liegt.

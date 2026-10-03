@@ -83,6 +83,12 @@ interface Graph {
   flutter: GainNode;
   dust: GainNode;
   drive: GainNode;
+  /** Schweben: how much of the chorus is heard. */
+  chorus: GainNode;
+  /** Krümel: the sampler's crumbling (null where the browser has no AudioWorklet). */
+  crush: AudioParam | null;
+  /** Knistern: the record's crackle and rumble. */
+  vinyl: GainNode;
   /** The echo's length: three sixteenths, so it follows the tempo. */
   echoTime: AudioParam;
   tone: BiquadFilterNode;
@@ -135,7 +141,7 @@ export class Engine {
   private pulses: Pulse[] = [];
 
   constructor(public groove: Groove) {
-    this.feel = feelOf(groove.chords.mode);
+    this.feel = feelOf(groove.chords.mode, groove.genre);
     this.tempo = this.feel.tempo;
     this.stepSeconds = 15 / this.tempo;
   }
@@ -171,7 +177,15 @@ export class Engine {
     if (!this.context) {
       playThroughSilentSwitch();
       this.context = new AudioContext({ latencyHint: "playback" });
-      this.graph = this.build(this.context);
+      // Krümel runs on the audio thread; without it the rest still plays.
+      const crusher = await this.context.audioWorklet
+        ?.addModule(new URL("./crusher-processor.js", import.meta.url))
+        .then(() => true)
+        .catch((error: unknown) => {
+          console.warn("Krümel nicht verfügbar", error);
+          return false;
+        });
+      this.graph = this.build(this.context, crusher === true);
       this.nextTime = this.context.currentTime + 0.1;
     }
     // The audio clock stands still while suspended, so a pause picks up exactly where it stopped.
@@ -256,7 +270,7 @@ export class Engine {
       }
       this.barEnergy = Math.min(1, Math.max(0, this.energyNow + (this.tide ? tideOffset(this.tide) / 10 : 0)));
       this.onBar?.(bar, modulate);
-      this.feel = feelOf(this.groove.chords.mode);
+      this.feel = feelOf(this.groove.chords.mode, this.groove.genre);
       this.applyFeel(time);
     }
     if (index === 0) this.move = this.dj ? pickMove(this.move, this.barEnergy, Math.random) : "ruhe";
@@ -395,6 +409,15 @@ export class Engine {
       }
       case "clap": {
         const { tone, decay, level } = kit.clap;
+        if (this.groove.genre === "hiphop") {
+          // Hip-hop's backbeat is a snare: a short drum tone that drops, and its rattle.
+          const body = this.osc("triangle", (tone / 7) * 1.4, time, 0.3);
+          body.frequency.setValueAtTime((tone / 7) * 1.4, time);
+          body.frequency.exponentialRampToValueAtTime(tone / 7, time + 0.03);
+          body.connect(this.envelope(time, vel * 0.35 * level, 0.001, 0.01, 0.09)).connect(drums);
+          this.noise(time, vel * 0.55 * level, "highpass", 1800, 0.001, decay * 0.8, drums).connect(room);
+          break;
+        }
         this.noise(time, vel * 0.45 * level, "bandpass", tone, 0.001, 0.012, drums);
         this.noise(time + 0.011, vel * 0.45 * level, "bandpass", tone, 0.001, 0.012, drums);
         this.noise(time + 0.022, vel * 0.6 * level, "bandpass", tone, 0.001, decay, drums).connect(room);
@@ -573,7 +596,7 @@ export class Engine {
   private mix(effects: Effects, time: number): void {
     const graph = this.graph;
     if (!graph) return;
-    const { hall, echo, tape, filter } = effects;
+    const { hall, echo, tape, filter, chorus, crush, vinyl } = effects;
     const glide = (param: AudioParam, value: number): void => {
       param.setTargetAtTime(value, time, this.stepSeconds / 3);
     };
@@ -585,6 +608,9 @@ export class Engine {
     glide(graph.wow.gain, 0.0003 * tape);
     glide(graph.flutter.gain, 0.000004 * tape);
     glide(graph.dust.gain, 0.2 * tape);
+    glide(graph.chorus.gain, 0.07 * chorus);
+    if (graph.crush) glide(graph.crush, crush / 10);
+    glide(graph.vinyl.gain, 0.07 * vinyl);
     // Half of it: the saturation curve spans twice full scale (see build).
     glide(graph.drive.gain, 0.5 * (0.7 + 0.06 * tape));
     // Left of the middle the lowpass comes down to 300 Hz, right of it the highpass climbs to 2 kHz.
@@ -601,7 +627,7 @@ export class Engine {
     graph.echoTime.setTargetAtTime((15 / this.feel.tempo) * 3, time, 0.5);
   }
 
-  private build(context: AudioContext): Graph {
+  private build(context: AudioContext, crusher: boolean): Graph {
     const gain = (value: number): GainNode => {
       const node = context.createGain();
       node.gain.value = value;
@@ -642,12 +668,31 @@ export class Engine {
     const ceiling = context.createWaveShaper();
     ceiling.curve = limitCurve();
     // No oversampling: its resampling filter would ring past the curve's ceiling. The bend is gentle enough without.
-    wobble.connect(drive).connect(saturation).connect(tone).connect(dull).connect(thin).connect(limiter).connect(master).connect(gain(0.5)).connect(ceiling).connect(context.destination);
+    // Krümel comes after the energy's lowpass, which would otherwise take away the grit it adds.
+    const crumble = crusher ? new AudioWorkletNode(context, "kruemel") : null;
+    wobble.connect(drive).connect(saturation).connect(tone);
+    (crumble ? tone.connect(crumble) : tone).connect(dull).connect(thin).connect(limiter).connect(master).connect(gain(0.5)).connect(ceiling).connect(context.destination);
 
     const drums = gain(this.feel.punch);
     drums.connect(wobble);
     const music = gain(1);
     music.connect(wobble);
+
+    // Schweben: two copies of chords and melody on short delays that drift
+    // slowly against each other, one to each side.
+    const chorus = gain(0);
+    for (const [rate, side] of [[0.27, -0.8], [0.41, 0.8]] as const) {
+      const voice = context.createDelay(0.05);
+      voice.delayTime.value = 0.014;
+      const drift = context.createOscillator();
+      drift.frequency.value = rate;
+      drift.connect(gain(0.0035)).connect(voice.delayTime);
+      drift.start();
+      const pan = context.createStereoPanner();
+      pan.pan.value = side;
+      music.connect(voice).connect(pan).connect(chorus);
+    }
+    chorus.connect(wobble);
 
     const room = gain(0);
     const reverb = context.createConvolver();
@@ -663,12 +708,21 @@ export class Engine {
     echo.connect(delay).connect(damp).connect(music);
     damp.connect(echoFeedback).connect(delay);
 
-    // Dust: hiss and crackle, pumping along with the kick.
+    // Dust: the tape's hiss, pumping along with the kick.
     const dust = gain(0);
+    const hiss = context.createBufferSource();
+    hiss.buffer = dustLoop(context);
+    hiss.loop = true;
+    hiss.connect(dust).connect(music);
+    hiss.start();
+
+    // Knistern: a record's crackle and a low rumble. It joins after the kick's ducking and the
+    // energy's lowpass, so it stays crisp; the filter for the hand still shapes it.
+    const vinyl = gain(0);
     const record = context.createBufferSource();
-    record.buffer = dustLoop(context);
+    record.buffer = recordLoop(context);
     record.loop = true;
-    record.connect(dust).connect(music);
+    record.connect(vinyl).connect(dull);
     record.start();
 
     const strip = (track: TrackId, setting = this.levelsNow[track]): Strip => {
@@ -687,7 +741,7 @@ export class Engine {
     const samples = noise.getChannelData(0);
     for (let index = 0; index < samples.length; index += 1) samples[index] = Math.random() * 2 - 1;
 
-    return { tracks, newStrip: strip, drums, music, room, echo, echoFeedback, wow, flutter, dust, drive, echoTime: delay.delayTime, tone, dull, thin, master, noise };
+    return { tracks, newStrip: strip, drums, music, room, echo, echoFeedback, wow, flutter, dust, drive, chorus, crush: crumble?.parameters.get("amount") ?? null, vinyl, echoTime: delay.delayTime, tone, dull, thin, master, noise };
   }
 }
 
@@ -697,15 +751,29 @@ const toneCutoff = (energy: number): number => 2600 + 11000 * energy * energy;
 /** A few milliseconds off the grid, so hats and shaker are not machine-straight. */
 const jitter = (): number => Math.random() * 0.004;
 
-/** Eight seconds of quiet hiss with scattered crackles, like a worn record. */
+/** Eight seconds of a tape's quiet hiss. */
 function dustLoop(context: AudioContext): AudioBuffer {
   const buffer = context.createBuffer(1, context.sampleRate * 8, context.sampleRate);
   const samples = buffer.getChannelData(0);
   for (let index = 0; index < samples.length; index += 1) samples[index] = (Math.random() * 2 - 1) * 0.006;
-  for (let crackle = 0; crackle < 70; crackle += 1) {
-    const at = Math.floor(Math.random() * (samples.length - 64));
-    const level = (0.02 + 0.2 * Math.random() ** 3) * (Math.random() < 0.5 ? -1 : 1);
-    for (let index = 0; index < 64; index += 1) samples[at + index]! += level * Math.exp(-index / 5);
+  return buffer;
+}
+
+/** Eleven seconds of a worn record: crackles big and small, and a low rumble. Not a multiple of the tape's loop, so they never line up. */
+function recordLoop(context: AudioContext): AudioBuffer {
+  const buffer = context.createBuffer(1, context.sampleRate * 11, context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  let rumble = 0;
+  for (let index = 0; index < samples.length; index += 1) {
+    rumble += 0.004 * (Math.random() * 2 - 1 - rumble);
+    samples[index] = rumble * 0.9;
+  }
+  for (let crackle = 0; crackle < 260; crackle += 1) {
+    const at = Math.floor(Math.random() * (samples.length - 96));
+    const size = Math.random() ** 4;
+    const level = (0.05 + 0.6 * size) * (Math.random() < 0.5 ? -1 : 1);
+    const length = 3 + 30 * size;
+    for (let index = 0; index < 96; index += 1) samples[at + index]! += level * Math.exp(-index / length) * (index % 2 ? -0.4 : 1);
   }
   return buffer;
 }

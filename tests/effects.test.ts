@@ -13,8 +13,8 @@ function seeded(seed: number): () => number {
   };
 }
 
-const quiet: Effects = { hall: 0, echo: 0, tape: 0, pump: 0, filter: 0 };
-const loud: Effects = { hall: 10, echo: 10, tape: 10, pump: 10, filter: 5 };
+const quiet: Effects = { hall: 0, echo: 0, tape: 0, pump: 0, filter: 0, chorus: 0, crush: 0, vinyl: 0 };
+const loud: Effects = { hall: 10, echo: 10, tape: 10, pump: 10, filter: 5, chorus: 10, crush: 10, vinyl: 10 };
 
 it("plays each move around your settings and starts every pass from them", () => {
   for (const base of [quiet, DEFAULT_EFFECTS, loud, { ...quiet, filter: -5 }]) {
@@ -39,6 +39,9 @@ it("plays each move around your settings and starts every pass from them", () =>
   expect(djEffects(DEFAULT_EFFECTS, "hallwelle", 0.5).hall).toBeCloseTo(10);
   expect(djEffects(DEFAULT_EFFECTS, "leiern", 0.5).tape).toBeCloseTo(10);
   expect(djEffects(DEFAULT_EFFECTS, "pumpen", 0.5).pump).toBeCloseTo(9);
+  expect(djEffects(DEFAULT_EFFECTS, "kruemel", 0.99).crush).toBeGreaterThan(6.5);
+  expect(djEffects(DEFAULT_EFFECTS, "kruemel", 0.4)).toEqual(DEFAULT_EFFECTS);
+  expect(djEffects(DEFAULT_EFFECTS, "schwebe", 0.5).chorus).toBeCloseTo(10);
   for (let progress = 0; progress < 1; progress += 0.1) expect(djEffects(DEFAULT_EFFECTS, "ruhe", progress)).toEqual(DEFAULT_EFFECTS);
 });
 

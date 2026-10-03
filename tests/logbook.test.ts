@@ -29,7 +29,7 @@ it("plays grooves from before moods and instruments as they sounded then", () =>
   const { key, bars, stabs } = groove.chords;
   const old = { drums: groove.drums, bass: groove.bass, chords: { key, bars, stabs }, melody: groove.melody };
   const first = { drums: "staubig", bass: "sub", chords: "saege", melody: "glocke" };
-  expect(readGroove(old)).toEqual({ ...old, chords: { key, mode: 0, bars, stabs }, sounds: first, extras: [] });
+  expect(readGroove(old)).toEqual({ ...old, genre: "house", chords: { key, mode: 0, bars, stabs }, sounds: first, extras: [] });
   // Instruments stored by number, from before the library: the second of each track then.
   expect(readGroove({ ...groove, sounds: { drums: 1, bass: 1, chords: 1, melody: 1 } })?.sounds).toEqual({ drums: "knackig", bass: "rund", chords: "epiano", melody: "floete" });
   // An instrument or mood that does not exist falls back the same way; a kit cannot play the bass.
@@ -37,8 +37,9 @@ it("plays grooves from before moods and instruments as they sounded then", () =>
 });
 
 it("reads the effect controls back, each within its range", () => {
-  expect(readEffects(undefined)).toEqual({ hall: 4, echo: 4, tape: 5, pump: 6, filter: 0 });
-  expect(readEffects({ hall: 10, echo: 0, tape: 11, pump: 2.5, filter: -5, wah: 3 })).toEqual({ hall: 10, echo: 0, tape: 5, pump: 6, filter: -5 });
+  expect(readEffects(undefined)).toEqual({ hall: 4, echo: 4, tape: 5, pump: 6, filter: 0, chorus: 2, crush: 0, vinyl: 4 });
+  // Settings stored before the newer effects get those at their defaults.
+  expect(readEffects({ hall: 10, echo: 0, tape: 11, pump: 2.5, filter: -5, wah: 3 })).toEqual({ hall: 10, echo: 0, tape: 5, pump: 6, filter: -5, chorus: 2, crush: 0, vinyl: 4 });
 });
 
 it("names a groove after its key, the same way every time", () => {
@@ -60,7 +61,7 @@ it("reads the running groove back, or starts fresh", () => {
   const groove = bredGroove();
   expect(parseSession(null)).toBeNull();
   expect(parseSession(JSON.stringify({ groove: {}, energy: 3 }))).toBeNull();
-  const effects = { hall: 1, echo: 2, tape: 3, pump: 4, filter: 5 };
+  const effects = { hall: 1, echo: 2, tape: 3, pump: 4, filter: 5, chorus: 6, crush: 7, vinyl: 8 };
   expect(parseSession(JSON.stringify({ groove, energy: 3, volume: 55, held: ["bass", "tuba"], effects, dj: false }))).toEqual({ groove, energy: 3, volume: 55, held: ["bass"], effects, levels: DEFAULT_LEVELS, dj: false, tides: false, calmSky: false });
   // Odd settings fall back to the defaults; the groove still counts.
   expect(parseSession(JSON.stringify({ groove, energy: 99, volume: "laut" }))).toEqual({ groove, energy: 5, volume: 80, held: [], effects: readEffects(null), levels: DEFAULT_LEVELS, dj: false, tides: false, calmSky: false });

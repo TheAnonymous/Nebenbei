@@ -36,6 +36,7 @@ export default defineConfig({
   base: "/Nebenbei/",
   plugins: [vue(), serviceWorker()],
   preview: { headers: { "Content-Security-Policy": PRODUCTION_CSP } },
-  build: { target: "es2022" },
+  // No asset is inlined as a data: URL: the site's CSP would block the Krümel worklet as one.
+  build: { target: "es2022", assetsInlineLimit: 0 },
   test: { include: ["tests/**/*.test.ts"] },
 });

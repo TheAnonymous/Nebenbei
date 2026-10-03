@@ -1,4 +1,4 @@
-import { EXTRA_FITS, FITS, KITS, PATCHES } from "../audio/instruments";
+import { EXTRA_FITS, GENRE_FITS, KITS, PATCHES } from "../audio/instruments";
 
 /*
  * The groove: four tracks that breed themselves. Everything here is plain
@@ -19,6 +19,11 @@ export const STAB_STEPS = 16;
 
 export const TRACKS = ["drums", "bass", "chords", "melody"] as const;
 export type TrackId = (typeof TRACKS)[number];
+
+/** The genres: each has its own tempo, swing, drum backbone and ways of bass, chords and melody (STYLES). */
+export const GENRES = ["house", "hiphop"] as const;
+export type Genre = (typeof GENRES)[number];
+export const GENRE_NAMES: Record<Genre, string> = { house: "Lo-Fi-House", hiphop: "Lo-Fi-Hip-Hop" };
 
 export const DRUM_VOICES = ["kick", "clap", "hat", "open", "shaker", "rim"] as const;
 /** The voices of an extra percussion track: hand drums, a clave, and two from the kit. */
@@ -62,6 +67,7 @@ export interface Harmony {
 }
 
 export interface Groove {
+  genre: Genre;
   drums: Hit[];
   bass: Note[];
   /** One chord per bar, one bar of stab rhythm. */
@@ -102,9 +108,9 @@ export const isCore = (track: string): track is TrackId => (TRACKS as readonly s
 /** Everything that can play a track: the kits for drums and percussion, every instrument for the others. */
 export const instrumentsFor = (role: TrackId): readonly string[] => (role === "drums" ? Object.keys(KITS) : Object.keys(PATCHES));
 
-/** The instrument after `current` among those that suit the track best. */
-export function nextInstrument(track: TrackId, current: string): string {
-  const fits = FITS[track];
+/** The instrument after `current` among those that suit the track best in the genre. */
+export function nextInstrument(track: TrackId, current: string, genre: Genre = "house"): string {
+  const fits = GENRE_FITS[genre][track];
   return fits[(fits.indexOf(current) + 1) % fits.length]!;
 }
 
@@ -152,9 +158,14 @@ export interface Feel {
   melodyLow: number;
 }
 
-export function feelOf(mode: number): Feel {
+export function feelOf(mode: number, genre: Genre = "house"): Feel {
   const happy = mode / (MODES.length - 1);
-  return { tempo: 104 + 22 * happy, swing: 0.08 + 0.12 * happy, brightness: 0.7 + 0.6 * happy, space: 1.5 - 0.8 * happy, punch: 0.85 + 0.2 * happy, wait: 1.25 - 0.5 * happy, melodyLow: [55, 58, 60, 63, 65][mode]! };
+  const melodyLow = [55, 58, 60, 63, 65][mode]!;
+  if (genre === "hiphop") {
+    // Slow, heavily swung and a little darker: boom-bap at 72 to 88.
+    return { tempo: 72 + 16 * happy, swing: 0.22 + 0.08 * happy, brightness: 0.6 + 0.5 * happy, space: 1.4 - 0.6 * happy, punch: 0.9 + 0.15 * happy, wait: 1.25 - 0.5 * happy, melodyLow };
+  }
+  return { tempo: 104 + 22 * happy, swing: 0.08 + 0.12 * happy, brightness: 0.7 + 0.6 * happy, space: 1.5 - 0.8 * happy, punch: 0.85 + 0.2 * happy, wait: 1.25 - 0.5 * happy, melodyLow };
 }
 
 /** Whether a hit, note or stab of a track plays at this energy (0..1) in this mood. */
@@ -217,8 +228,8 @@ export function chordName(harmony: Harmony, chord: Chord): string {
 
 // ---- Drums -----------------------------------------------------------------
 
-/** Kick on every quarter, clap on two and four, hats off the beat, a shaker in eighths. Mutations never touch these. */
-function backbone(): Hit[] {
+/** House: kick on every quarter, clap on two and four, hats off the beat, a shaker in eighths. Mutations never touch these. */
+function houseBackbone(): Hit[] {
   const hits: Hit[] = [];
   for (let step = 0; step < DRUM_STEPS; step += 1) {
     const inBar = step % STEPS_PER_BAR;
@@ -230,6 +241,18 @@ function backbone(): Hit[] {
   return hits;
 }
 
+/** Boom-bap: kick on one and on the and of three, snare (the clap's place) on two and four, hats in eighths. */
+function hiphopBackbone(): Hit[] {
+  const hits: Hit[] = [];
+  for (let step = 0; step < DRUM_STEPS; step += 1) {
+    const inBar = step % STEPS_PER_BAR;
+    if (inBar === 0 || inBar === 10) hits.push({ step, voice: "kick", vel: inBar ? 0.85 : 1, min: inBar ? 0.35 : 0.3 });
+    if (inBar === 4 || inBar === 12) hits.push({ step, voice: "clap", vel: 0.9, min: 0.4 });
+    if (inBar % 2 === 0) hits.push({ step, voice: "hat", vel: inBar % 4 === 0 ? 0.55 : 0.4, min: 0.25 });
+  }
+  return hits;
+}
+
 /** The hits that may come and go around the backbone: where in a bar, how loud, from which energy, how many at most. */
 const DRUM_EXTRAS: readonly { voice: DrumVoice; steps: readonly number[]; vel: number; min: number; max: number }[] = [
   { voice: "kick", steps: [3, 7, 10, 11, 14, 15], vel: 0.5, min: 0.7, max: 3 },
@@ -237,6 +260,16 @@ const DRUM_EXTRAS: readonly { voice: DrumVoice; steps: readonly number[]; vel: n
   { voice: "open", steps: [2, 6, 10, 14], vel: 0.5, min: 0.65, max: 6 },
   { voice: "shaker", steps: [1, 3, 5, 7, 9, 11, 13, 15], vel: 0.2, min: 0.3, max: 10 },
   { voice: "rim", steps: [3, 6, 7, 10, 11, 13, 15], vel: 0.5, min: 0.55, max: 5 },
+];
+
+/** Hip-hop's ghost notes around its backbone: a kick that drags, soft snares, sixteenth hats. */
+const HIPHOP_EXTRAS: typeof DRUM_EXTRAS = [
+  { voice: "kick", steps: [3, 7, 14, 15], vel: 0.6, min: 0.5, max: 3 },
+  { voice: "clap", steps: [6, 9, 14, 15], vel: 0.3, min: 0.55, max: 3 },
+  { voice: "hat", steps: [1, 3, 5, 7, 9, 11, 13, 15], vel: 0.25, min: 0.55, max: 8 },
+  { voice: "open", steps: [6, 14], vel: 0.4, min: 0.6, max: 2 },
+  { voice: "rim", steps: [3, 7, 11, 13], vel: 0.4, min: 0.45, max: 3 },
+  { voice: "shaker", steps: [2, 6, 10, 14], vel: 0.2, min: 0.4, max: 4 },
 ];
 
 /** The hits of an extra percussion track, none of them fixed. */
@@ -264,9 +297,9 @@ function mutateDrums(hits: Hit[], rng: Rng, table = DRUM_EXTRAS, least = 0): boo
   return true;
 }
 
-function rollDrums(rng: Rng): Hit[] {
-  const hits = backbone();
-  for (let n = 0; n < 40; n += 1) mutateDrums(hits, rng);
+function rollDrums(rng: Rng, style: Style): Hit[] {
+  const hits = style.backbone();
+  for (let n = 0; n < 40; n += 1) mutateDrums(hits, rng, style.drums);
   return hits;
 }
 
@@ -284,6 +317,9 @@ interface Line {
 
 const BASS: Line = { steps: BASS_STEPS, grid: [0, 2, 3, 6, 7, 8, 10, 11, 14], tones: [0, 0, 0, 0, 2, 2, 3, 4], lens: [1, 2, 2, 3], count: [4, 12], min: [0.2, 0.6] };
 const MELODY: Line = { steps: LOOP_STEPS, grid: [0, 2, 3, 4, 6, 8, 10, 11, 12, 14], tones: [0, 1, 2, 3, 4, 5], lens: [1, 2, 3, 4], count: [4, 12], min: [0.05, 0.6] };
+/** Hip-hop: a bass that sits with the kick and holds, a melody with room between its notes. */
+const HIPHOP_BASS: Line = { steps: BASS_STEPS, grid: [0, 3, 7, 10, 11, 14], tones: [0, 0, 0, 0, 2, 3, 4], lens: [3, 4, 6], count: [3, 8], min: [0.15, 0.5] };
+const HIPHOP_MELODY: Line = { steps: LOOP_STEPS, grid: [0, 3, 6, 8, 10, 12, 14], tones: [0, 1, 2, 3, 4, 5], lens: [2, 3, 4, 6], count: [3, 9], min: [0.1, 0.6] };
 
 function addNote(notes: Note[], rng: Rng, line: Line, withinSteps = line.steps): boolean {
   const step = STEPS_PER_BAR * Math.floor(rng() * (withinSteps / STEPS_PER_BAR)) + pick(rng, line.grid);
@@ -338,7 +374,7 @@ function rollNotes(rng: Rng, line: Line, motifSteps: number, variations: number)
 // ---- Chords ----------------------------------------------------------------
 
 /** Four bars each, as steps of the scale (in minor: 0 = i, 2 = III, 3 = iv, 4 = v, 5 = VI, 6 = VII). */
-const PROGRESSIONS: readonly (readonly number[])[] = [
+const HOUSE_PROGRESSIONS: readonly (readonly number[])[] = [
   [0, 5, 2, 6],
   [0, 3, 5, 4],
   [5, 6, 0, 0],
@@ -348,19 +384,26 @@ const PROGRESSIONS: readonly (readonly number[])[] = [
   [0, 6, 5, 6],
   [5, 4, 0, 0],
 ];
-const STAB_GRID = [0, 3, 6, 8, 10, 11, 14];
-const MAX_STABS = 5;
+/** Hip-hop leans on the subdominant and walks through more chords. */
+const HIPHOP_PROGRESSIONS: readonly (readonly number[])[] = [
+  [0, 3, 6, 2],
+  [3, 6, 2, 5],
+  [0, 5, 3, 4],
+  [5, 4, 0, 0],
+  [0, 3, 0, 4],
+  [3, 4, 0, 0],
+];
 
-function addStab(stabs: Stab[], rng: Rng): boolean {
-  const step = pick(rng, STAB_GRID);
+function addStab(stabs: Stab[], rng: Rng, style: Style): boolean {
+  const step = stabs.length ? pick(rng, style.stabGrid) : style.stabGrid[0]!;
   if (stabs.some((stab) => stab.step === step)) return false;
   // The first stab comes in early, so the chords get a rhythm as soon as the kick is there.
-  stabs.push({ step, len: pick(rng, [1, 2, 2, 3]), min: stabs.length ? between(rng, 0.4, 0.7) : 0.35 });
+  stabs.push({ step, len: Math.min(STAB_STEPS - step, pick(rng, style.stabLens)), min: stabs.length ? between(rng, 0.4, 0.7) : 0.35 });
   return true;
 }
 
 /** One small change: a chord moves to another inversion, gains or loses its ninth, the rhythm shifts, or (rarely) a chord gives way to a relative. */
-function mutateChords(chords: Groove["chords"], rng: Rng): boolean {
+function mutateChords(chords: Groove["chords"], rng: Rng, style: Style): boolean {
   const chord = pick(rng, chords.bars);
   const kind = rng();
   if (kind < 0.35) {
@@ -378,25 +421,47 @@ function mutateChords(chords: Groove["chords"], rng: Rng): boolean {
       chords.stabs.splice(Math.floor(rng() * chords.stabs.length), 1);
       return true;
     }
-    return chords.stabs.length < MAX_STABS && addStab(chords.stabs, rng);
+    return chords.stabs.length < style.maxStabs && addStab(chords.stabs, rng, style);
   }
   // The chord a third above or below shares three of the four notes.
   chord.degree = (chord.degree + pick(rng, [2, 5])) % 7;
   return true;
 }
 
-function rollChords(rng: Rng): Groove["chords"] {
+function rollChords(rng: Rng, style: Style): Groove["chords"] {
   const stabs: Stab[] = [];
-  const want = 2 + Math.floor(rng() * 3);
-  while (stabs.length < want) addStab(stabs, rng);
+  const want = style.stabCount[0] + Math.floor(rng() * (style.stabCount[1] - style.stabCount[0] + 1));
+  while (stabs.length < want) addStab(stabs, rng, style);
   return {
     key: Math.floor(rng() * 12),
-    // A fresh groove starts in minor or dorian, where Lo-Fi-House is at home.
+    // A fresh groove starts in minor or dorian, where both genres are at home.
     mode: Math.floor(rng() * 2),
-    bars: pick(rng, PROGRESSIONS).map((degree) => ({ degree, inversion: Math.floor(rng() * 3), ninth: rng() < 0.5 })),
+    bars: pick(rng, style.progressions).map((degree) => ({ degree, inversion: Math.floor(rng() * 3), ninth: rng() < style.ninth })),
     stabs,
   };
 }
+
+/** Everything a genre decides about the patterns. */
+interface Style {
+  backbone: () => Hit[];
+  drums: typeof DRUM_EXTRAS;
+  bass: Line;
+  melody: Line;
+  progressions: readonly (readonly number[])[];
+  /** How likely a chord carries its ninth. */
+  ninth: number;
+  /** Where chords may start (the first always on the first), how long they last, how many a bar. */
+  stabGrid: readonly number[];
+  stabLens: readonly number[];
+  stabCount: readonly [number, number];
+  maxStabs: number;
+}
+
+const STYLES: Record<Genre, Style> = {
+  house: { backbone: houseBackbone, drums: DRUM_EXTRAS, bass: BASS, melody: MELODY, progressions: HOUSE_PROGRESSIONS, ninth: 0.5, stabGrid: [0, 3, 6, 8, 10, 11, 14], stabLens: [1, 2, 2, 3], stabCount: [2, 4], maxStabs: 5 },
+  // Long, jazzy chords: one or two a bar, mostly with their ninth.
+  hiphop: { backbone: hiphopBackbone, drums: HIPHOP_EXTRAS, bass: HIPHOP_BASS, melody: HIPHOP_MELODY, progressions: HIPHOP_PROGRESSIONS, ninth: 0.8, stabGrid: [0, 8, 10, 12, 14], stabLens: [4, 6, 8, 12, 16], stabCount: [1, 2], maxStabs: 3 },
+};
 
 /**
  * The answer to a four-bar progression, so that two passes make eight bars:
@@ -501,13 +566,15 @@ export const withExtra = (groove: Groove, id: string, change: (extra: Extra) => 
 
 // ---- The whole groove ------------------------------------------------------
 
-export function rollGroove(rng: Rng): Groove {
-  const sound = (track: TrackId): string => pick(rng, FITS[track]);
+export function rollGroove(rng: Rng, genre: Genre = "house"): Groove {
+  const style = STYLES[genre];
+  const sound = (track: TrackId): string => pick(rng, GENRE_FITS[genre][track]);
   return {
-    drums: rollDrums(rng),
-    bass: rollNotes(rng, BASS, STEPS_PER_BAR, 1),
-    chords: rollChords(rng),
-    melody: rollNotes(rng, MELODY, 2 * STEPS_PER_BAR, 2),
+    genre,
+    drums: rollDrums(rng, style),
+    bass: rollNotes(rng, style.bass, STEPS_PER_BAR, 1),
+    chords: rollChords(rng, style),
+    melody: rollNotes(rng, style.melody, 2 * STEPS_PER_BAR, 2),
     sounds: { drums: sound("drums"), bass: sound("bass"), chords: sound("chords"), melody: sound("melody") },
     extras: [],
   };
@@ -545,7 +612,7 @@ const listOf = (value: unknown, item: (fields: Fields) => boolean, least = 0): b
  */
 export function readGroove(value: unknown): Groove | null {
   if (value === null || typeof value !== "object") return null;
-  const { drums, bass, chords, melody, sounds, extras } = value as Fields;
+  const { genre, drums, bass, chords, melody, sounds, extras } = value as Fields;
   if (chords === null || typeof chords !== "object") return null;
   const { key, mode, bars, stabs } = chords as Fields;
   const line = (notes: unknown, steps: number): boolean =>
@@ -565,6 +632,8 @@ export function readGroove(value: unknown): Groove | null {
     listOf(stabs, (stab) => whole(stab.step, 0, STAB_STEPS - 1) && whole(stab.len, 1, STAB_STEPS) && unit(stab.min));
   if (!playable) return null;
   return {
+    // Grooves from before the genres are house.
+    genre: GENRES.includes(genre as Genre) ? (genre as Genre) : "house",
     drums: drums as Hit[],
     bass: bass as Note[],
     chords: { key: key as number, mode: whole(mode, 0, MODES.length - 1) ? mode : 0, bars: bars as Chord[], stabs: stabs as Stab[] },
@@ -605,11 +674,31 @@ function readExtras(value: unknown, line: (notes: unknown, steps: number) => boo
 }
 
 const MUTATORS: Record<TrackId, (groove: Groove, rng: Rng) => boolean> = {
-  drums: (groove, rng) => mutateDrums(groove.drums, rng),
-  bass: (groove, rng) => mutateNotes(groove.bass, rng, BASS),
-  chords: (groove, rng) => mutateChords(groove.chords, rng),
-  melody: (groove, rng) => mutateNotes(groove.melody, rng, MELODY),
+  drums: (groove, rng) => mutateDrums(groove.drums, rng, STYLES[groove.genre].drums),
+  bass: (groove, rng) => mutateNotes(groove.bass, rng, STYLES[groove.genre].bass),
+  chords: (groove, rng) => mutateChords(groove.chords, rng, STYLES[groove.genre]),
+  melody: (groove, rng) => mutateNotes(groove.melody, rng, STYLES[groove.genre].melody),
 };
+
+/**
+ * The groove in another genre: drums, bass, melody and the chords' rhythm
+ * start anew in its style, with instruments that suit it; key, mood and
+ * progression stay, and so do held tracks and the extra tracks.
+ */
+export function switchGenre(groove: Groove, genre: Genre, rng: Rng, held: ReadonlySet<string> = new Set()): Groove {
+  if (groove.genre === genre) return groove;
+  const fresh = rollGroove(rng, genre);
+  const keep = (track: TrackId): boolean => held.has(track);
+  return {
+    ...groove,
+    genre,
+    drums: keep("drums") ? groove.drums : fresh.drums,
+    bass: keep("bass") ? groove.bass : fresh.bass,
+    melody: keep("melody") ? groove.melody : fresh.melody,
+    chords: keep("chords") ? groove.chords : { ...groove.chords, stabs: fresh.chords.stabs },
+    sounds: { drums: keep("drums") ? groove.sounds.drums : fresh.sounds.drums, bass: keep("bass") ? groove.sounds.bass : fresh.sounds.bass, chords: keep("chords") ? groove.sounds.chords : fresh.sounds.chords, melody: keep("melody") ? groove.sounds.melody : fresh.sounds.melody },
+  };
+}
 
 /**
  * Returns a copy of the groove with a fresh pattern on one track (a core
@@ -618,7 +707,7 @@ const MUTATORS: Record<TrackId, (groove: Groove, rng: Rng) => boolean> = {
  */
 export function roll(groove: Groove, track: string, rng: Rng): Groove {
   if (!isCore(track)) return withExtra(groove, track, (extra) => ({ ...extra, ...rollPattern(extra.kind, rng) }) as Extra);
-  const fresh = rollGroove(rng);
+  const fresh = rollGroove(rng, groove.genre);
   return track === "chords" ? { ...groove, chords: { ...fresh.chords, mode: groove.chords.mode } } : { ...groove, [track]: fresh[track] };
 }
 

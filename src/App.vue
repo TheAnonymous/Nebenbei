@@ -9,8 +9,8 @@ import type { Entry } from "./logbook";
 import { loadDay, loadLogbook, loadSession, saveDay, saveLogbook, saveSession } from "./logbook";
 import { mediaKeysPlaying, setUpMediaKeys } from "./media-keys";
 import type { Groove, TrackId } from "./music/groove";
-import type { ExtraKind } from "./music/groove";
-import { addExtra, BASS_STEPS, chordName, DRUM_STEPS, DRUM_VOICES, EXTRA_KINDS, EXTRA_NAMES, EXTRA_ROLES, EXTRA_STEPS, feelOf, grooveName, isCore, LOOP_STEPS, MAX_TRACKS, MODES, mutate, nextInstrument, PERC_VOICES, plays, removeExtra, roll, rollGroove, STAB_STEPS, trackIds, TRACKS, turnaround, withExtra } from "./music/groove";
+import type { ExtraKind, Genre } from "./music/groove";
+import { addExtra, BASS_STEPS, chordName, DRUM_STEPS, DRUM_VOICES, EXTRA_KINDS, EXTRA_NAMES, EXTRA_ROLES, EXTRA_STEPS, feelOf, GENRE_NAMES, GENRES, grooveName, isCore, LOOP_STEPS, MAX_TRACKS, MODES, mutate, nextInstrument, PERC_VOICES, plays, removeExtra, roll, rollGroove, STAB_STEPS, switchGenre, trackIds, TRACKS, turnaround, withExtra } from "./music/groove";
 import { PHASE_NAMES } from "./music/tide";
 import { applyUpdate, install, installable, setUpApp, updateReady } from "./pwa";
 import { versionLabel } from "./version";
@@ -207,6 +207,20 @@ function addTrack(event: Event): void {
   });
 }
 
+/** Another genre, from the next bar line: the tracks that are not held start anew in its style; key, mood and chords stay. */
+function chooseGenre(event: Event): void {
+  const menu = event.target as HTMLSelectElement;
+  const genre = menu.value as Genre;
+  menu.blur();
+  if (!GENRES.includes(genre)) return;
+  onBarLine(() => {
+    if (groove.value.genre === genre) return;
+    leaveTrail();
+    note("nudge");
+    show(switchGenre(groove.value, genre, Math.random, held.value), TRACKS.filter((track) => !held.value.has(track)));
+  });
+}
+
 function removeTrack(id: string): void {
   onBarLine(() => {
     leaveTrail();
@@ -218,7 +232,7 @@ function removeTrack(id: string): void {
 
 /** The next of the instruments that suit the track. */
 function cycleSound(track: TrackId): void {
-  setSound(track, nextInstrument(track, groove.value.sounds[track]));
+  setSound(track, nextInstrument(track, groove.value.sounds[track], groove.value.genre));
 }
 
 /** The menu of a track: the kits for drums and percussion, every instrument in its group for the others. */
@@ -463,9 +477,12 @@ const chordsOf = (entry: Entry): string => entry.groove.chords.bars.map((chord) 
 const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
   { id: "hall", name: "Hall", hint: "Wie viel Raum um Akkorde, Melodie und Clap liegt" },
   { id: "echo", name: "Echo", hint: "Das Echo der Melodie: lauter und mit mehr Wiederholungen" },
-  { id: "tape", name: "Band", hint: "Leiern, Rauschen, Knistern und Sättigung wie von einer alten Kassette" },
+  { id: "tape", name: "Band", hint: "Leiern, Rauschen und Sättigung wie von einer alten Kassette" },
   { id: "pump", name: "Pumpen", hint: "Wie tief alles unter der Kick wegtaucht" },
   { id: "filter", name: "Filter", hint: "Links dumpf, rechts dünn, in der Mitte aus" },
+  { id: "chorus", name: "Schweben", hint: "Ein Chorus: Akkorde und Melodie schweben breit im Stereo" },
+  { id: "crush", name: "Krümel", hint: "Weniger Bits und Samples, wie ein alter Sampler" },
+  { id: "vinyl", name: "Knistern", hint: "Das Knistern und Rumpeln einer alten Platte" },
 ];
 </script>
 
@@ -485,6 +502,9 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
       <button type="button" @click="rollTracks(TRACKS)">Alles würfeln <kbd>0</kbd></button>
       <button type="button" :disabled="!logbook.trail.length" @click="back">Zurück <kbd>Z</kbd></button>
       <button type="button" @click="keep">Merken <kbd>M</kbd></button>
+      <select class="add genre" aria-label="Genre" :value="groove.genre" title="Das Genre: Tempo, Swing, Drums, Bass, Akkorde und Melodie in seinem Stil" @change="chooseGenre">
+        <option v-for="genre in GENRES" :key="genre" :value="genre">{{ GENRE_NAMES[genre] }}</option>
+      </select>
       <button type="button" class="switch sky-switch" :aria-pressed="calmSky" title="Ein ruhigerer Himmel zum Konzentrieren: langsamer, ohne Blitze auf den Drums" @click="calmSky = !calmSky">Ruhiger Himmel <kbd>H</kbd></button>
       <button v-if="installable" type="button" @click="install">Als App installieren</button>
     </div>
@@ -542,7 +562,7 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
         <span class="ends"><span>ruhig</span><span>voller Groove</span></span>
       </div>
       <label class="energy mood">
-        <span>Stimmung <output :key="mood" class="swap">{{ MODES[mood]!.name }} · {{ Math.round(feelOf(mood).tempo) }} BPM</output></span>
+        <span>Stimmung <output :key="mood" class="swap">{{ MODES[mood]!.name }} · {{ Math.round(feelOf(mood, groove.genre).tempo) }} BPM</output></span>
         <input v-model.number="mood" type="range" min="0" :max="MODES.length - 1" step="1" />
         <span class="ends"><span>traurig</span><span>fröhlich</span></span>
       </label>
@@ -604,7 +624,7 @@ const EFFECT_CONTROLS: { id: keyof Effects; name: string; hint: string }[] = [
           <li v-for="entry in section.entries" :key="entry.at">
             <button type="button" class="entry" @click="recall(entry)">
               <span>{{ when(entry.at) }} · {{ entry.name }}</span>
-              <small>{{ chordsOf(entry) }}</small>
+              <small>{{ GENRE_NAMES[entry.groove.genre] }} · {{ chordsOf(entry) }}</small>
             </button>
             <button type="button" class="forget" :aria-label="`${entry.name} löschen`" @click="forget(section.id, entry)">×</button>
           </li>

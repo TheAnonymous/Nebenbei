@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
 import type { Extra, Groove, Note, Rng } from "../src/music/groove";
-import { addExtra, BASS_STEPS, chordName, chordPitches, DRUM_STEPS, EXTRA_KINDS, EXTRA_ROLES, EXTRA_STEPS, feelOf, instrumentsFor, keyName, LOOP_STEPS, MAX_TRACKS, MODES, mutate, nextInstrument, PERC_VOICES, plays, readGroove, removeExtra, roll, rollGroove, STAB_STEPS, tonePitch, trackIds, TRACKS, turnaround } from "../src/music/groove";
+import { addExtra, BASS_STEPS, chordName, chordPitches, DRUM_STEPS, EXTRA_KINDS, EXTRA_ROLES, EXTRA_STEPS, feelOf, GENRES, instrumentsFor, keyName, LOOP_STEPS, MAX_TRACKS, MODES, mutate, nextInstrument, PERC_VOICES, plays, readGroove, removeExtra, roll, rollGroove, STAB_STEPS, switchGenre, tonePitch, trackIds, TRACKS, turnaround } from "../src/music/groove";
 
 /** mulberry32: the same seed gives the same music. */
 function seeded(seed: number): Rng {
@@ -16,7 +16,7 @@ function seeded(seed: number): Rng {
 
 // Plain asserts here: these run a few thousand times, and `expect` is slow at that.
 function assertLine(notes: Note[], steps: number, tones: number[]): void {
-  assert(notes.length >= 4 && notes.length <= 12, `${notes.length} notes`);
+  assert(notes.length >= 3 && notes.length <= 12, `${notes.length} notes`);
   assert(notes[0]!.step >= 0);
   notes.forEach((note, index) => {
     assert(tones.includes(note.tone), `tone ${note.tone}`);
@@ -28,7 +28,9 @@ function assertLine(notes: Note[], steps: number, tones: number[]): void {
 
 function assertPlayable(groove: Groove): void {
   const has = (voice: string, step: number): boolean => groove.drums.some((hit) => hit.voice === voice && hit.step === step);
-  for (let step = 0; step < DRUM_STEPS; step += 4) assert(has("kick", step), `kick missing at ${step}`);
+  // The backbone never goes: four on the floor in house, boom-bap in hip-hop; the backbeat on two and four in both.
+  const kicks = groove.genre === "hiphop" ? [0, 10, 16, 26] : [0, 4, 8, 12, 16, 20, 24, 28];
+  for (const step of kicks) assert(has("kick", step), `${groove.genre}: kick missing at ${step}`);
   for (const step of [4, 12, 20, 28]) assert(has("clap", step), `clap missing at ${step}`);
   const places = groove.drums.map((hit) => `${hit.voice}@${hit.step}`);
   assert.equal(new Set(places).size, places.length, "two hits of one voice on one step");
@@ -130,6 +132,48 @@ it("takes up to four extra tracks of any kind, which breed, roll and come back f
   expect(readGroove(JSON.parse(JSON.stringify(stored)))!.extras.map((extra) => extra.id)).toEqual(groove.extras.map((extra) => extra.id));
   // Taking one away leaves the others.
   expect(trackIds(removeExtra(groove, first!.id))).toHaveLength(MAX_TRACKS - 1);
+});
+
+it("plays Lo-Fi-Hip-Hop: slower, more swung, boom-bap, long chords, and switches without losing the harmony", () => {
+  for (let mode = 0; mode < MODES.length; mode += 1) {
+    const house = feelOf(mode, "house");
+    const hiphop = feelOf(mode, "hiphop");
+    expect(hiphop.tempo).toBeGreaterThanOrEqual(72);
+    expect(hiphop.tempo).toBeLessThanOrEqual(88);
+    expect(hiphop.tempo).toBeLessThan(house.tempo - 20);
+    expect(hiphop.swing).toBeGreaterThan(house.swing);
+  }
+  const rng = seeded(31);
+  for (let n = 0; n < 30; n += 1) {
+    let groove = rollGroove(rng, "hiphop");
+    expect(groove.genre).toBe("hiphop");
+    assertPlayable(groove);
+    // One or two long chords a bar, the first on the one.
+    expect(groove.chords.stabs.length).toBeLessThanOrEqual(2);
+    expect(groove.chords.stabs.some((stab) => stab.step === 0 && stab.len >= 4)).toBe(true);
+    for (let step = 0; step < 300; step += 1) groove = mutate(groove, rng).groove;
+    assertPlayable(groove);
+    expect(groove.chords.stabs.length).toBeLessThanOrEqual(3);
+    for (const stab of groove.chords.stabs) expect(stab.step + stab.len).toBeLessThanOrEqual(STAB_STEPS);
+  }
+  // Switching keeps key, mood, progression, held tracks and the extras; the rest starts anew in the genre's style.
+  const house = addExtra(rollGroove(rng), "arpeggio", rng);
+  const held = new Set(["bass"]);
+  const hiphop = switchGenre(house, "hiphop", rng, held);
+  assertPlayable(hiphop);
+  expect(hiphop.genre).toBe("hiphop");
+  expect(hiphop.chords).toMatchObject({ key: house.chords.key, mode: house.chords.mode, bars: house.chords.bars });
+  expect(hiphop.bass).toBe(house.bass);
+  expect(hiphop.sounds.bass).toBe(house.sounds.bass);
+  expect(hiphop.extras).toBe(house.extras);
+  expect(hiphop.drums).not.toEqual(house.drums);
+  expect(switchGenre(hiphop, "hiphop", rng)).toBe(hiphop);
+  expect(switchGenre(hiphop, "house", rng).genre).toBe("house");
+  // A roll stays in the genre; stored grooves from before the genres are house.
+  expect(roll(hiphop, "drums", rng).drums.some((hit) => hit.voice === "kick" && hit.step === 10)).toBe(true);
+  const { genre: _genre, ...old } = house;
+  expect(readGroove(JSON.parse(JSON.stringify(old)))!.genre).toBe("house");
+  expect(GENRES).toEqual(["house", "hiphop"]);
 });
 
 it("rolls one track and leaves held tracks alone", () => {

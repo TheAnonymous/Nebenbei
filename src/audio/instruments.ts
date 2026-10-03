@@ -1,4 +1,4 @@
-import type { ExtraKind, TrackId } from "../music/groove";
+import type { ExtraKind, Genre, TrackId } from "../music/groove";
 
 /*
  * The instruments, as data: the engine plays every one of them with the same
@@ -92,6 +92,17 @@ export const FITS: Record<TrackId, readonly string[]> = {
   bass: ["sub", "rund", "reese", "kontrabass", "kantig", "clav"],
   chords: ["saege", "epiano", "kassettenpiano", "orgel", "m1orgel", "clav", "streicher", "chor", "vibraphon", "glasharfe"],
   melody: ["glocke", "glasharfe", "vibraphon", "marimba", "kalimba", "floete", "pfiff", "gezupft", "gameboy", "kassettenpiano", "streicher", "chor"],
+};
+
+/** The instruments that suit each genre: house as above, hip-hop dusty and warm (Rhodes, upright bass, soft kits). */
+export const GENRE_FITS: Record<Genre, Record<TrackId, readonly string[]>> = {
+  house: FITS,
+  hiphop: {
+    drums: ["staubig", "weich", "kiste", "tr808"],
+    bass: ["sub", "kontrabass", "rund"],
+    chords: ["kassettenpiano", "epiano", "vibraphon", "orgel"],
+    melody: ["glocke", "kalimba", "floete", "vibraphon", "pfiff", "marimba", "glasharfe"],
+  },
 };
 
 /** The same for the extra tracks. */
