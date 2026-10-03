@@ -1,0 +1,177 @@
+:root {
+  --bg: #1d1814;
+  --panel: #27201b;
+  --line: #3a3029;
+  --ink: #eadfcd;
+  --dim: #9a8c7c;
+  --drums: #d98b5f;
+  --bass: #d9b45f;
+  --chords: #8fb39a;
+  --melody: #d99aa8;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.5 ui-rounded, "Nunito", system-ui, sans-serif;
+}
+
+main {
+  box-sizing: border-box;
+  max-width: 920px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 40px 24px;
+  display: grid;
+  gap: 28px;
+  align-content: start;
+}
+
+h1 {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+header p {
+  margin: 4px 0 0;
+  color: var(--dim);
+}
+
+.play {
+  justify-self: start;
+  min-width: 140px;
+  padding: 12px 28px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--bg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.play:hover {
+  background: #fff5e4;
+}
+
+:focus-visible {
+  outline: 2px solid var(--melody);
+  outline-offset: 3px;
+}
+
+.tracks {
+  display: grid;
+  gap: 10px;
+}
+
+.track {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.track.drums { --color: var(--drums); }
+.track.bass { --color: var(--bass); }
+.track.chords { --color: var(--chords); }
+.track.melody { --color: var(--melody); }
+
+.name {
+  color: var(--color);
+  font-weight: 600;
+}
+
+.lane {
+  position: relative;
+  height: 72px;
+  border-radius: 10px;
+  overflow: hidden;
+  /* A faint line on every bar. */
+  background: linear-gradient(to right, var(--line) 1px, transparent 1px) 0 0 / 25% 100%, var(--panel);
+  box-shadow: 0 0 0 1px var(--line);
+  transition: box-shadow 1.5s;
+}
+
+/* The track that has just changed by itself glows for a moment. */
+.changed .lane {
+  box-shadow: 0 0 0 1px var(--color), 0 0 18px -4px var(--color);
+  transition-duration: 0.2s;
+}
+
+.lane i {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--panel);
+  border-radius: 3px;
+  background: var(--color);
+  transition: opacity 0.4s;
+}
+
+/* Waits for more energy. */
+.lane i.off {
+  opacity: 0.16;
+}
+
+.lane b {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: calc(100% / 64);
+  background: rgb(255 245 228 / 0.14);
+}
+
+.chords .lane i {
+  top: 55% !important;
+  height: 30% !important;
+}
+
+.chord {
+  position: absolute;
+  top: 6px;
+  padding-left: 8px;
+  color: var(--color);
+  font-size: 14px;
+}
+
+.energy,
+.volume {
+  display: grid;
+  gap: 6px;
+}
+
+.energy output {
+  margin-left: 6px;
+  color: var(--dim);
+}
+
+.ends {
+  display: flex;
+  justify-content: space-between;
+  color: var(--dim);
+  font-size: 14px;
+}
+
+input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--drums);
+}
+
+.volume {
+  max-width: 260px;
+  color: var(--dim);
+  font-size: 14px;
+}
+
+.volume input {
+  accent-color: var(--dim);
+}
+
+footer {
+  color: var(--dim);
+  font-size: 13px;
+}
