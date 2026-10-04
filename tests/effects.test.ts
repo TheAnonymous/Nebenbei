@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { Effects, Move } from "../src/audio/effects";
-import { CEILING, DEFAULT_EFFECTS, djEffects, EFFECT_RANGES, levelGain, limitCurve, MOVES, pickMove, softLimit } from "../src/audio/effects";
+import { CEILING, DEFAULT_EFFECTS, djEffects, EFFECT_RANGES, levelGain, limitCurve, MOVES, pickMove, softLimit, tapeCurve, tapeDrive } from "../src/audio/effects";
 
 /** mulberry32: the same seed gives the same moves. */
 function seeded(seed: number): () => number {
@@ -90,4 +90,22 @@ it("sets the track levels with 80 as the measured level", () => {
   expect(levelGain(0)).toBe(0);
   expect(levelGain(40)).toBe(0.25);
   expect(20 * Math.log10(levelGain(100))).toBeCloseTo(3.9, 1);
+});
+
+it("colours a loud mix with the tape at the middle setting, but does not make it rattle", () => {
+  // A sine at half scale (a loud mix) through drive and curve, against its best straight line.
+  const curve = tapeCurve();
+  const drive = tapeDrive(DEFAULT_EFFECTS.tape);
+  let xx = 0, xy = 0, yy = 0;
+  for (let index = 0; index < 1000; index += 1) {
+    const x = 0.5 * Math.sin((2 * Math.PI * index) / 1000) * drive;
+    const y = curve[Math.round((x + 1) * 1023.5)]!;
+    xx += x * x;
+    xy += x * y;
+    yy += y * y;
+  }
+  const gain = xy / xx;
+  const distortion = Math.sqrt((yy - 2 * gain * xy + gain * gain * xx) / yy);
+  expect(distortion).toBeGreaterThan(0.002);
+  expect(distortion).toBeLessThan(0.02);
 });

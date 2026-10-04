@@ -4,7 +4,7 @@ import type { Phase, Tide } from "../music/tide";
 import { nextBar, startTide, tideOffset } from "../music/tide";
 import { Clock } from "./clock";
 import type { Effects, Levels, Move } from "./effects";
-import { DEFAULT_EFFECTS, DEFAULT_LEVELS, djEffects, levelGain, limitCurve, pickMove } from "./effects";
+import { DEFAULT_EFFECTS, DEFAULT_LEVELS, djEffects, levelGain, limitCurve, pickMove, TAPE_LEVEL, tapeCurve, tapeDrive } from "./effects";
 import type { Patch } from "./instruments";
 import { KITS, PATCHES } from "./instruments";
 import { playThroughSilentSwitch } from "./ios-audio";
@@ -83,6 +83,8 @@ interface Graph {
   flutter: GainNode;
   dust: GainNode;
   drive: GainNode;
+  /** Gives back after the saturation what the drive took, so the tape changes the colour and not the level. */
+  makeup: GainNode;
   /** Schweben: how much of the chorus is heard. */
   chorus: GainNode;
   /** Krümel: the sampler's crumbling (null where the browser has no AudioWorklet). */
@@ -611,8 +613,8 @@ export class Engine {
     glide(graph.chorus.gain, 0.07 * chorus);
     if (graph.crush) glide(graph.crush, crush / 10);
     glide(graph.vinyl.gain, 0.07 * vinyl);
-    // Half of it: the saturation curve spans twice full scale (see build).
-    glide(graph.drive.gain, 0.5 * (0.7 + 0.06 * tape));
+    glide(graph.drive.gain, tapeDrive(tape));
+    glide(graph.makeup.gain, TAPE_LEVEL / tapeDrive(tape));
     // Left of the middle the lowpass comes down to 300 Hz, right of it the highpass climbs to 2 kHz.
     glide(graph.dull.frequency, filter < 0 ? 20000 * (300 / 20000) ** (-filter / 5) : 20000);
     glide(graph.thin.frequency, filter > 0 ? 20 * (2000 / 20) ** (filter / 5) : 20);
@@ -644,16 +646,16 @@ export class Engine {
     };
 
     // The tape: a delay whose length wobbles bends the pitch of everything on it,
-    // then saturation and the lowpass of the energy. The saturation curve spans
-    // twice full scale and the drive halves the signal, so a loud mix bends
-    // further into it instead of hitting the curve's end.
+    // then saturation and the lowpass of the energy. The drive keeps the mix low
+    // on the curve, so a loud mix bends further into it instead of hitting its end.
     const wobble = context.createDelay(0.05);
     wobble.delayTime.value = 0.006;
     const wow = lfo(0.31, wobble.delayTime);
     const flutter = lfo(5.3, wobble.delayTime);
     const drive = gain(1);
+    const makeup = gain(1);
     const saturation = context.createWaveShaper();
-    saturation.curve = Float32Array.from({ length: 2048 }, (_, index) => Math.tanh(3.2 * (index / 1023.5 - 1)));
+    saturation.curve = tapeCurve();
     const tone = this.filter("lowpass", toneCutoff(this.energyNow) * this.feel.brightness, 0.5);
     const dull = this.filter("lowpass", 20000, 0.9);
     const thin = this.filter("highpass", 20, 0.9);
@@ -670,7 +672,7 @@ export class Engine {
     // No oversampling: its resampling filter would ring past the curve's ceiling. The bend is gentle enough without.
     // Krümel comes after the energy's lowpass, which would otherwise take away the grit it adds.
     const crumble = crusher ? new AudioWorkletNode(context, "kruemel") : null;
-    wobble.connect(drive).connect(saturation).connect(tone);
+    wobble.connect(drive).connect(saturation).connect(makeup).connect(tone);
     (crumble ? tone.connect(crumble) : tone).connect(dull).connect(thin).connect(limiter).connect(master).connect(gain(0.5)).connect(ceiling).connect(context.destination);
 
     const drums = gain(this.feel.punch);
@@ -741,7 +743,7 @@ export class Engine {
     const samples = noise.getChannelData(0);
     for (let index = 0; index < samples.length; index += 1) samples[index] = Math.random() * 2 - 1;
 
-    return { tracks, newStrip: strip, drums, music, room, echo, echoFeedback, wow, flutter, dust, drive, chorus, crush: crumble?.parameters.get("amount") ?? null, vinyl, echoTime: delay.delayTime, tone, dull, thin, master, noise };
+    return { tracks, newStrip: strip, drums, music, room, echo, echoFeedback, wow, flutter, dust, drive, makeup, chorus, crush: crumble?.parameters.get("amount") ?? null, vinyl, echoTime: delay.delayTime, tone, dull, thin, master, noise };
   }
 }
 

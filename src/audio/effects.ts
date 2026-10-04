@@ -153,3 +153,17 @@ export function softLimit(input: number): number {
 
 /** softLimit as a WaveShaper curve for an input that was halved before it (the curve spans -1..1, the signal -2..2). */
 export const limitCurve = (): Float32Array<ArrayBuffer> => Float32Array.from({ length: 4097 }, (_, index) => softLimit(2 * (index / 2048 - 1)));
+
+/*
+ * The tape's saturation: a tanh curve the drive feeds only a little of the mix
+ * at the middle setting (about 2 % distortion when it is loud), more towards 10.
+ * The make-up after it gives back what the drive took: Band changes the colour,
+ * not the level.
+ */
+
+export const tapeDrive = (tape: number): number => 0.1 + 0.03 * tape;
+
+/** How loud the tape hands the mix on: drive times make-up. */
+export const TAPE_LEVEL = 0.4;
+
+export const tapeCurve = (): Float32Array<ArrayBuffer> => Float32Array.from({ length: 2048 }, (_, index) => Math.tanh(3.2 * (index / 1023.5 - 1)));

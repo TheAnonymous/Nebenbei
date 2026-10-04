@@ -59,8 +59,10 @@ läuft unter <https://musik.jodie-oesterling.de/Nebenbei/>.
   bis 0,8 unberührt und biegt alles darüber weich gegen 0,98, nie darüber,
   egal wie laut die Spuren, die Effekte und die Lautstärke stehen. Bei den
   Grundeinstellungen greift sie praktisch nie (gemessen: 0,01 % der Samples).
-  Die Bandsättigung davor deckt das Doppelte des Vollausschlags ab, damit ein
-  lauter Mix weich in sie hineinläuft statt an ihr Ende zu stoßen.
+  Die Bandsättigung davor färbt nur leicht: Bei Band 5 verzerrt sie einen
+  lauten Mix um etwa 2 % (gemessen −30 bis −36 dB, vorher −20 bis −25 dB, das
+  klirrte). Erst weiter rechts wird sie deutlicher. Eine Ausgleichsstufe
+  dahinter hält den Pegel, Band ändert also die Farbe, nicht die Lautstärke.
 - **Genre:** Lo-Fi-House (104–126 BPM, Kick auf jedem Viertel, kurze
   Akkord-Stabs), Lo-Fi-Hip-Hop (72–88 BPM, starker Swing, Boom-Bap mit Kick
   auf der Eins und dem Und der Drei und Snare auf zwei und vier, längere
